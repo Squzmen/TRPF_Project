@@ -1,24 +1,26 @@
-"""Чтение и надежная запись JSON-файлов приложения."""
+"""Преобразование JSON в коллекции объектов и обратное сохранение."""
 
 import json
-import math
 import os
 import tempfile
-from datetime import date
+from contextlib import suppress
 from pathlib import Path
+
+from models import Event, Plan, User
 
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 EVENTS_FILE = DATA_DIR / "events.json"
+USERS_FILE = DATA_DIR / "users.json"
 PLANS_FILE = DATA_DIR / "plans.json"
 
 
 class StorageError(Exception):
-    """Данные отсутствуют, повреждены или не могут быть сохранены."""
+    """Данные отсутствуют, некорректны или не могут быть записаны."""
 
 
 def load_json(path: Path) -> list[dict]:
-    """Загрузить список словарей из JSON-файла."""
+    """Загрузить список записей из существующего UTF-8 файла."""
     try:
         with path.open("r", encoding="utf-8") as stream:
             data = json.load(stream)
@@ -31,87 +33,101 @@ def load_json(path: Path) -> list[dict]:
     return data
 
 
-def validate_data(events: list[dict], plans: list[dict]) -> None:
-    """Проверить поля, ссылки и вместимость данных перед работой."""
-    event_ids = set()
-    for event in events:
-        try:
-            event_id = event["id"]
-            name = event["name"]
-            category = event["category"]
-            event_day = event["event_date"]
-            age = event["age_limit"]
-            price = event["ticket_price"]
-            capacity = event["capacity"]
-            if (type(event_id) is not int or event_id <= 0 or
-                    event_id in event_ids or
-                    not isinstance(name, str) or not name.strip() or
-                    not isinstance(category, str) or not category.strip() or
-                    not isinstance(event_day, str) or
-                    type(age) is not int or age < 0 or
-                    type(price) not in (int, float) or
-                    not math.isfinite(price) or price < 0 or
-                    type(capacity) is not int or capacity < 0):
-                raise ValueError("недопустимое поле мероприятия")
-            date.fromisoformat(event_day)
-            event_ids.add(event_id)
-        except (KeyError, ValueError, TypeError) as error:
-            raise StorageError(f"Некорректное мероприятие: {error}") from error
-
-    plan_ids = set()
-    occupations = {}
-    users = set()
-    for plan in plans:
-        try:
-            plan_id = plan["id"]
-            event_id = plan["event_id"]
-            name = plan["user_name"]
-            age = plan["user_age"]
-            category = plan["preferred_category"]
-            budget = plan["budget"]
-            if (type(plan_id) is not int or plan_id <= 0 or
-                    plan_id in plan_ids or type(event_id) is not int or
-                    event_id not in event_ids or
-                    not isinstance(name, str) or not name.strip() or
-                    not isinstance(category, str) or not category.strip() or
-                    type(age) is not int or age < 0 or
-                    type(budget) not in (int, float) or
-                    not math.isfinite(budget) or budget < 0 or
-                    (event_id, name.strip().casefold()) in users):
-                raise ValueError("недопустимое поле записи")
-            plan_ids.add(plan_id)
-            users.add((event_id, name.strip().casefold()))
-            occupations[event_id] = occupations.get(event_id, 0) + 1
-        except (KeyError, ValueError, TypeError) as error:
-            raise StorageError(f"Некорректная запись: {error}") from error
-    for event in events:
-        if occupations.get(event["id"], 0) > event["capacity"]:
-            raise StorageError("Число записей превышает вместимость.")
+def _unique_ids(objects: list, kind: str) -> None:
+    """Запретить дублирующиеся идентификаторы в одном каталоге."""
+    ids = [item.id for item in objects]
+    if len(ids) != len(set(ids)):
+        raise StorageError(f"Повторяющийся ID: {kind}.")
 
 
 def load_data(events_path: Path = EVENTS_FILE,
-              plans_path: Path = PLANS_FILE) -> tuple[list[dict], list[dict]]:
-    """Загрузить и проверить оба файла приложения."""
-    events = load_json(events_path)
-    plans = load_json(plans_path)
-    validate_data(events, plans)
-    return events, plans
+              plans_path: Path = PLANS_FILE,
+              users_path: Path = USERS_FILE
+              ) -> tuple[list[Event], list[User], list[Plan]]:
+    """Восстановить объекты, связи и записи старого формата ПР2."""
+    raw_events = load_json(events_path)
+    raw_users = load_json(users_path)
+    raw_plans = load_json(plans_path)
+    try:
+        events = [Event.from_data(item) for item in raw_events]
+        users = [User.from_data(item) for item in raw_users]
+        _unique_ids(events, "мероприятия")
+        _unique_ids(users, "пользователя")
+        event_by_id = {event.id: event for event in events}
+        user_by_id = {user.id: user for user in users}
+        next_user_id = max(user_by_id, default=0) + 1
+        plans = []
+        for item in raw_plans:
+            event = event_by_id[item["event_id"]]
+            if "user_id" in item:
+                user = user_by_id[item["user_id"]]
+                cancelled = item["is_cancelled"]
+            else:
+                # ПР2 хранила свойства посетителя прямо в записи.
+                candidate = User(next_user_id, item["user_name"],
+                                 item["user_age"],
+                                 item["preferred_category"], item["budget"])
+                user = next((existing for existing in users if
+                             existing.name.casefold() ==
+                             candidate.name.casefold() and
+                             existing.age == candidate.age and
+                             existing.preferred_category.casefold() ==
+                             candidate.preferred_category.casefold() and
+                             existing.budget == candidate.budget), None)
+                if user is None:
+                    user = candidate
+                    next_user_id += 1
+                    users.append(user)
+                    user_by_id[user.id] = user
+                cancelled = False
+            plans.append(Plan(item["id"], event, user, cancelled))
+        _unique_ids(plans, "записи")
+        active = set()
+        for plan in plans:
+            if plan.is_cancelled:
+                continue
+            key = (plan.event.id, plan.user.name.casefold())
+            if key in active:
+                raise StorageError("Найдена повторная активная запись.")
+            active.add(key)
+        from plans import remaining_seats
+        if any(remaining_seats(plans, event) < 0 for event in events):
+            raise StorageError("Число записей превышает вместимость.")
+    except (KeyError, TypeError, ValueError) as error:
+        raise StorageError(f"Некорректные данные JSON: {error}") from error
+    return events, users, plans
 
 
-def save_plans(plans: list[dict], path: Path = PLANS_FILE) -> None:
-    """Сохранить планы во временный файл и заменить им исходный."""
+def save_json(data: list[dict], path: Path) -> None:
+    """Записать данные во временный файл и атомарно заменить JSON."""
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", dir=path.parent,
-            prefix=".plans-", suffix=".tmp", delete=False
+            prefix=".data-", suffix=".tmp", delete=False
         ) as stream:
             temporary = Path(stream.name)
-            json.dump(plans, stream, ensure_ascii=False, indent=2)
+            json.dump(data, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
         os.replace(temporary, path)
     except (OSError, TypeError, ValueError) as error:
         raise StorageError(f"Ошибка записи {path}: {error}") from error
     finally:
         if temporary is not None:
-            temporary.unlink(missing_ok=True)
+            with suppress(OSError):
+                temporary.unlink(missing_ok=True)
+
+
+def save_events(events: list[Event], path: Path = EVENTS_FILE) -> None:
+    """Сохранить каталог объектов Event."""
+    save_json([event.to_data() for event in events], path)
+
+
+def save_users(users: list[User], path: Path = USERS_FILE) -> None:
+    """Сохранить пользователей перед сохранением связанных записей."""
+    save_json([user.to_data() for user in users], path)
+
+
+def save_plans(plans: list[Plan], path: Path = PLANS_FILE) -> None:
+    """Сохранить записи как идентификаторы связанных объектов."""
+    save_json([plan.to_data() for plan in plans], path)

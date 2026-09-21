@@ -1,6 +1,7 @@
 """Безопасный ввод значений пользователем."""
 
 import math
+from datetime import date
 
 
 def input_nonempty(prompt: str) -> str:
@@ -34,3 +35,12 @@ def input_float(prompt: str, minimum: float = 0) -> float:
         except ValueError:
             pass
         print(f"Введите число не меньше {minimum}.")
+
+
+def input_date(prompt: str) -> date:
+    """Повторять запрос до получения календарной даты ГГГГ-ММ-ДД."""
+    while True:
+        try:
+            return date.fromisoformat(input(prompt).strip())
+        except ValueError:
+            print("Введите существующую дату в формате ГГГГ-ММ-ДД.")
