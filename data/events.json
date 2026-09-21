@@ -1,0 +1,29 @@
+[
+  {
+    "id": 1,
+    "name": "Спектакль «Гамлет»",
+    "category": "театр",
+    "event_date": "2026-10-17",
+    "age_limit": 12,
+    "ticket_price": 1500.0,
+    "capacity": 2
+  },
+  {
+    "id": 2,
+    "name": "Выставка живописи",
+    "category": "выставка",
+    "event_date": "2026-11-14",
+    "age_limit": 6,
+    "ticket_price": 500.0,
+    "capacity": 3
+  },
+  {
+    "id": 3,
+    "name": "Концерт камерной музыки",
+    "category": "концерт",
+    "event_date": "2026-12-12",
+    "age_limit": 12,
+    "ticket_price": 2100.0,
+    "capacity": 1
+  }
+]

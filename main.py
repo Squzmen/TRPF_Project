@@ -1,105 +1,160 @@
-"""Начальный сценарий системы планирования культурного досуга."""
+"""Консольное меню системы планирования культурного досуга."""
 
 from datetime import date
 
-
-EVENT_NAME = "Спектакль «Гамлет»"
-EVENT_CATEGORY = "театр"
-EVENT_DATE = date(2026, 10, 17)
-EVENT_AGE_LIMIT = 12
-EVENT_TICKET_PRICE = 1500.0
-EVENT_HAS_AVAILABLE_SEATS = True
-
-
-def is_age_allowed(user_age: int, age_limit: int) -> bool:
-    """Проверить, соответствует ли возраст пользователя ограничению."""
-    if user_age >= age_limit:
-        return True
-    return False
+from events import (
+    filter_events, find_event, get_event_date_status, search_events,
+    sort_events,
+)
+from plans import (
+    cancel_plan, create_plan, find_plan, plan_recommendation,
+    plan_statistics, remaining_seats,
+)
+from storage import StorageError, load_data, save_plans
+from utils import input_float, input_int, input_nonempty
 
 
-def is_category_suitable(preferred_category: str, event_category: str) -> bool:
-    """Проверить соответствие мероприятия предпочтительной категории."""
-    normalized_preference = preferred_category.strip().lower()
-    normalized_category = event_category.strip().lower()
-    if normalized_preference == normalized_category:
-        return True
-    return False
+def show_events(events: list[dict], plans: list[dict]) -> None:
+    """Показать каталог мероприятий с числом оставшихся мест."""
+    if not events:
+        print("Мероприятий не найдено.")
+        return
+    for event in events:
+        print(
+            f"{event['id']}. {event['name']} | {event['category']} | "
+            f"{event['event_date']} | {event['ticket_price']:.2f} руб. | "
+            f"мест: {remaining_seats(plans, event)}"
+        )
 
 
-def is_budget_enough(user_budget: float, ticket_price: float) -> bool:
-    """Проверить, достаточно ли бюджета для покупки билета."""
-    if user_budget >= ticket_price:
-        return True
-    return False
+def show_plans(plans: list[dict], events: list[dict]) -> None:
+    """Показать созданные записи в план досуга."""
+    if not plans:
+        print("Планов пока нет.")
+        return
+    for plan in plans:
+        event = find_event(events, plan["event_id"])
+        print(
+            f"{plan['id']}. {plan['user_name']} — {event['name']} "
+            f"({event['event_date']})"
+        )
 
 
-def get_event_date_status(event_date: date, current_date: date) -> str:
-    """Определить временной статус мероприятия."""
-    if event_date < current_date:
-        return "Мероприятие уже прошло"
-    if event_date == current_date:
-        return "Мероприятие проходит сегодня"
-    return "Мероприятие еще впереди"
+def ask_event(events: list[dict]) -> dict | None:
+    """Запросить существующее мероприятие по его ID."""
+    event_id = input_int("ID мероприятия: ", minimum=1)
+    event = find_event(events, event_id)
+    if event is None:
+        print("Мероприятие не найдено.")
+    return event
 
 
-def get_recommendation(
-    age_allowed: bool,
-    category_suitable: bool,
-    budget_enough: bool,
-    date_available: bool,
-    has_available_seats: bool,
-) -> str:
-    """Сформировать итоговую рекомендацию для пользователя."""
-    if not has_available_seats:
-        return "Мероприятие не подходит: свободных мест нет."
-    if not date_available:
-        return "Мероприятие не подходит: оно уже прошло."
-    if not age_allowed:
-        return "Мероприятие не подходит: не пройдено возрастное ограничение."
-    if not category_suitable:
-        return "Мероприятие не подходит по выбранной категории."
-    if not budget_enough:
-        return "Мероприятие не подходит: стоимость билета превышает бюджет."
-    return "Мероприятие подходит. Его можно добавить в план досуга."
+def ask_user() -> tuple[str, int, str, float]:
+    """Запросить данные посетителя для проверок из ПР1."""
+    name = input_nonempty("Имя: ")
+    age = input_int("Возраст: ", minimum=0)
+    category = input_nonempty("Интересующая категория: ")
+    budget = input_float("Бюджет (руб.): ", minimum=0)
+    return name, age, category, budget
+
+
+def handle_check(events: list[dict], plans: list[dict],
+                 save: bool = False) -> None:
+    """Проверить мероприятие и, если нужно, записать посетителя."""
+    event = ask_event(events)
+    if event is None:
+        return
+    name, age, category, budget = ask_user()
+    event_day = date.fromisoformat(event["event_date"])
+    print(f"Статус даты: {get_event_date_status(event_day, date.today())}")
+    status = plan_recommendation(plans, event, age, category, budget)
+    print(status)
+    if not save:
+        return
+    try:
+        plan = create_plan(plans, event, name, age, category, budget)
+    except ValueError as error:
+        print(f"Запись не создана: {error}")
+        return
+    try:
+        save_plans(plans)
+    except StorageError as error:
+        plans.remove(plan)
+        print(f"Запись не сохранена: {error}")
+    else:
+        print(f"Запись добавлена, ID: {plan['id']}.")
+
+
+def handle_cancel(plans: list[dict]) -> None:
+    """Отменить запись и сохранить изменение на диске."""
+    plan_id = input_int("ID записи: ", minimum=1)
+    plan = find_plan(plans, plan_id)
+    if plan is None:
+        print("Запись не найдена.")
+        return
+    position = plans.index(plan)
+    cancel_plan(plans, plan_id)
+    try:
+        save_plans(plans)
+    except StorageError as error:
+        plans.insert(position, plan)
+        print(f"Отмена не сохранена: {error}")
+    else:
+        print("Запись отменена.")
 
 
 def main() -> None:
-    """Запустить диалог проверки мероприятия для пользователя."""
-    print("Система планирования культурного досуга")
-    print("Проверим, подходит ли вам выбранное мероприятие.\n")
+    """Загрузить данные и выполнять действия в цикле до выхода."""
+    try:
+        events, plans = load_data()
+    except StorageError as error:
+        print(f"Не удалось загрузить данные: {error}")
+        return
 
-    user_name = input("Введите имя: ").strip()
-    user_age = int(input("Введите возраст: "))
-    preferred_category = input("Введите интересующую категорию: ")
-    user_budget = float(input("Введите доступный бюджет в рублях: "))
-
-    age_allowed = is_age_allowed(user_age, EVENT_AGE_LIMIT)
-    category_suitable = is_category_suitable(
-        preferred_category,
-        EVENT_CATEGORY,
-    )
-    budget_enough = is_budget_enough(user_budget, EVENT_TICKET_PRICE)
-    current_date = date.today()
-    date_status = get_event_date_status(EVENT_DATE, current_date)
-    date_available = EVENT_DATE >= current_date
-    recommendation = get_recommendation(
-        age_allowed,
-        category_suitable,
-        budget_enough,
-        date_available,
-        EVENT_HAS_AVAILABLE_SEATS,
-    )
-
-    print(f"\nПользователь: {user_name}")
-    print(f"Мероприятие: {EVENT_NAME}")
-    print(f"Категория: {EVENT_CATEGORY}")
-    print(f"Дата: {EVENT_DATE.strftime('%d.%m.%Y')}")
-    print(f"Стоимость билета: {EVENT_TICKET_PRICE:.2f} руб.")
-    print(f"Статус даты: {date_status}")
-    print(f"Результат: {recommendation}")
+    print("Система планирования культурного досуга — ПР2")
+    while True:
+        print(
+            "\n1. Мероприятия  2. Поиск  3. Фильтр по категории\n"
+            "4. Сортировка по цене  5. Проверить мероприятие\n"
+            "6. Добавить в план  7. Отменить запись\n"
+            "8. Показать планы  9. Статистика  0. Выход"
+        )
+        try:
+            choice = input("Действие: ").strip()
+            if choice == "0":
+                print("До свидания!")
+                return
+            if choice == "1":
+                show_events(events, plans)
+            elif choice == "2":
+                show_events(search_events(events, input_nonempty("Поиск: ")),
+                            plans)
+            elif choice == "3":
+                show_events(filter_events(
+                    events, input_nonempty("Категория: ")), plans)
+            elif choice == "4":
+                show_events(sort_events(events), plans)
+            elif choice == "5":
+                handle_check(events, plans)
+            elif choice == "6":
+                handle_check(events, plans, save=True)
+            elif choice == "7":
+                handle_cancel(plans)
+            elif choice == "8":
+                show_plans(plans, events)
+            elif choice == "9":
+                stats = plan_statistics(events, plans)
+                print(
+                    f"Мероприятий: {stats['events']}; "
+                    f"записей: {stats['plans']}; "
+                    f"сумма билетов: {stats['total_price']:.2f} руб."
+                )
+            else:
+                print("Неизвестная команда.")
+        except (EOFError, KeyboardInterrupt):
+            print("\nРабота завершена.")
+            return
 
 
 if __name__ == "__main__":
     main()
-
