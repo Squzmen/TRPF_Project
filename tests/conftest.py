@@ -25,4 +25,6 @@ def pytest_configure(config):
     """Подготовить Django до сбора тестов веб-слоя (ПР5)."""
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "leisure.settings")
     import django
+    from django.test.utils import setup_test_environment
     django.setup()
+    setup_test_environment()

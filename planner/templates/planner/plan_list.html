@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Планы – Культурный досуг
+{% endblock %}
+
+{% block content %}
+    <h1>Планы посетителей</h1>
+
+    <p>
+        Всего записей: {{ plans|length }}
+    </p>
+
+    <ul class="list-group">
+        {% for plan in plans %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <a href="{% url 'planner:detail' plan.id %}">
+                    {{ plan.user.name }} – {{ plan.event.name }},
+                    {{ plan.event.event_date|date:"d.m.Y" }}
+                </a>
+                {% include "planner/includes/plan_status.html" %}
+            </li>
+        {% empty %}
+            <li class="list-group-item">Записи не найдены.</li>
+        {% endfor %}
+    </ul>
+{% endblock %}

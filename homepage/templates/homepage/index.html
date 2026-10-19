@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Главная – Культурный досуг
+{% endblock %}
+
+{% block content %}
+    <h1 class="display-4">Культурный досуг</h1>
+
+    <p class="lead">
+        Система планирования культурного досуга.
+    </p>
+    <p>
+        Выбирайте мероприятия по категории, дате, стоимости билета и
+        возрастному ограничению и записывайтесь на них.
+    </p>
+    <p>Основные разделы:</p>
+    <a href="{% url 'catalog:list' %}" class="btn btn-primary me-2">
+        Мероприятия
+    </a>
+    <a href="{% url 'planner:list' %}" class="btn btn-secondary">
+        Планы
+    </a>
+{% endblock %}

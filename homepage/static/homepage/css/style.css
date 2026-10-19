@@ -1,0 +1,55 @@
+/* Собственные стили проекта «Система планирования культурного досуга».
+   Bootstrap задаёт базовую вёрстку, этот файл — оформление проекта. */
+
+:root {
+    --leisure-accent: #5b3cc4;
+    --leisure-accent-soft: #efeafc;
+}
+
+body {
+    min-height: 100vh;
+}
+
+.leisure-logo {
+    width: 120px;
+    height: auto;
+    margin: 1rem 0 0.5rem;
+}
+
+.site-nav {
+    margin-bottom: 1.5rem;
+    border-bottom: 2px solid var(--leisure-accent-soft);
+}
+
+.site-nav .nav-link {
+    color: var(--leisure-accent);
+    font-weight: 500;
+}
+
+.site-nav .nav-link.active {
+    border-bottom: 3px solid var(--leisure-accent);
+    font-weight: 700;
+}
+
+.event-card {
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-left: 6px solid var(--leisure-accent);
+    border-radius: 8px;
+}
+
+.event-card:hover {
+    background-color: var(--leisure-accent-soft);
+}
+
+.plan-status {
+    font-weight: 600;
+}
+
+.plan-status-cancelled {
+    text-decoration: line-through;
+}
+
+.plan-status-active {
+    letter-spacing: 0.02em;
+}

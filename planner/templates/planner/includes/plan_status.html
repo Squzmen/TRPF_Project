@@ -1,0 +1,9 @@
+{% if plan.is_cancelled %}
+    <span class="badge bg-secondary plan-status plan-status-cancelled">
+        Отменена
+    </span>
+{% else %}
+    <span class="badge bg-success plan-status plan-status-active">
+        Активна
+    </span>
+{% endif %}

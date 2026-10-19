@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Мероприятия – Культурный досуг
+{% endblock %}
+
+{% block content %}
+    <h1>Мероприятия</h1>
+
+    <p>
+        Всего мероприятий: {{ items|length }}
+    </p>
+
+    {% for item in items %}
+        {% include "catalog/includes/event_card.html" with event=item.event seats_left=item.seats_left %}
+    {% empty %}
+        <p>Мероприятия не найдены.</p>
+    {% endfor %}
+{% endblock %}
