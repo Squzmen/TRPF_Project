@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Статистика – Культурный досуг
+{% endblock %}
+
+{% block content %}
+    <h1>Статистика записей</h1>
+
+    <section class="mb-4">
+        <h2 class="h4">Общие показатели</h2>
+        <p>Активных записей: {{ totals.active_plans }}</p>
+        <p>
+            Сумма билетов: {{ totals.total_price|floatformat:2 }} руб.
+            Средняя цена: {{ totals.avg_price|floatformat:2 }} руб.
+            Самый дешёвый билет: {{ totals.min_price|floatformat:2 }} руб.,
+            самый дорогой: {{ totals.max_price|floatformat:2 }} руб.
+        </p>
+    </section>
+
+    <section class="mb-4">
+        <h2 class="h4">Записи по мероприятиям</h2>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Мероприятие</th>
+                    <th>Категория</th>
+                    <th>Вместимость</th>
+                    <th>Записей</th>
+                    <th>Свободно мест</th>
+                    <th>Сумма билетов, руб.</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in by_event %}
+                    <tr>
+                        <td>{{ item.event_name }}</td>
+                        <td>{{ item.category }}</td>
+                        <td>{{ item.capacity }}</td>
+                        <td>{{ item.active_plans }}</td>
+                        <td>{{ item.seats_left }}</td>
+                        <td>{{ item.revenue|floatformat:2 }}</td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="6">Данные отсутствуют.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="mb-4">
+        <h2 class="h4">Популярные мероприятия</h2>
+        <p>Мероприятия, на которые записано не менее {{ popular_min }} человек:</p>
+        <ul class="list-group">
+            {% for item in popular %}
+                <li class="list-group-item d-flex justify-content-between">
+                    {{ item.event_name }}
+                    <span class="badge bg-primary">{{ item.active_plans }}</span>
+                </li>
+            {% empty %}
+                <li class="list-group-item">Таких мероприятий пока нет.</li>
+            {% endfor %}
+        </ul>
+    </section>
+
+    <section class="mb-4">
+        <h2 class="h4">Категории</h2>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Категория</th>
+                    <th>Мероприятий</th>
+                    <th>Мин. цена</th>
+                    <th>Средняя цена</th>
+                    <th>Макс. цена</th>
+                    <th>Всего мест</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in by_category %}
+                    <tr>
+                        <td>{{ item.category }}</td>
+                        <td>{{ item.events_count }}</td>
+                        <td>{{ item.min_price|floatformat:2 }}</td>
+                        <td>{{ item.avg_price|floatformat:2 }}</td>
+                        <td>{{ item.max_price|floatformat:2 }}</td>
+                        <td>{{ item.total_seats }}</td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="6">Данные отсутствуют.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="mb-4">
+        <h2 class="h4">Посетители</h2>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Посетитель</th>
+                    <th>Бюджет, руб.</th>
+                    <th>Активных записей</th>
+                    <th>Сумма билетов, руб.</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in by_user %}
+                    <tr>
+                        <td>{{ item.user_name }}</td>
+                        <td>{{ item.budget|floatformat:2 }}</td>
+                        <td>{{ item.active_plans }}</td>
+                        <td>{{ item.spent|floatformat:2 }}</td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="4">Данные отсутствуют.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <a
+        href="{% url 'planner:list' %}"
+        class="btn btn-outline-secondary"
+    >
+        ← к списку планов
+    </a>
+{% endblock %}

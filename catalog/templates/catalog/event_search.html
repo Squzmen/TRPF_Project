@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Поиск мероприятий – Культурный досуг
+{% endblock %}
+
+{% block content %}
+    <h1>Поиск мероприятий</h1>
+
+    <p>
+        Укажите период проведения и предельную цену билета. Незаполненные
+        поля не ограничивают поиск: дата «с» по умолчанию – сегодня.
+    </p>
+
+    <form method="get" class="row g-3 align-items-end mb-4">
+        <div class="col-auto">
+            <label for="date_from" class="form-label">Дата с</label>
+            <input
+                type="date"
+                id="date_from"
+                name="date_from"
+                value="{{ date_from }}"
+                class="form-control"
+            >
+        </div>
+        <div class="col-auto">
+            <label for="date_to" class="form-label">Дата по</label>
+            <input
+                type="date"
+                id="date_to"
+                name="date_to"
+                value="{{ date_to }}"
+                class="form-control"
+            >
+        </div>
+        <div class="col-auto">
+            <label for="max_price" class="form-label">
+                Цена билета до, руб.
+            </label>
+            <input
+                type="text"
+                id="max_price"
+                name="max_price"
+                value="{{ max_price }}"
+                class="form-control"
+            >
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">Найти</button>
+        </div>
+    </form>
+
+    {% for error in errors %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endfor %}
+
+    {% if submitted and not errors %}
+        <h2 class="h4">Найдено: {{ events|length }}</h2>
+        {% for event in events %}
+            {% include "catalog/includes/event_card.html" with seats_left=event.seats_left %}
+        {% empty %}
+            <p>По заданным условиям мероприятий нет.</p>
+        {% endfor %}
+    {% endif %}
+
+    <a
+        href="{% url 'catalog:list' %}"
+        class="btn btn-outline-secondary mt-3"
+    >
+        ← к списку мероприятий
+    </a>
+{% endblock %}

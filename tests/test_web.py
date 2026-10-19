@@ -1,6 +1,8 @@
 """Проверки веб-интерфейса Django: маршруты, шаблоны, статика (ПР5–ПР6)."""
 
 import inspect
+import sqlite3
+from datetime import date
 
 import pytest
 from django.contrib.staticfiles import finders
@@ -13,16 +15,29 @@ from django.utils.html import escape
 import catalog.views
 import homepage.views
 import planner.views
-from plans import remaining_seats
+from db.database import get_connection
+from plans import plan_statistics, remaining_seats
 from storage import load_data
 
-PAGES = ["/", "/events/", "/events/1/", "/plans/", "/plans/1/"]
+PAGES = ["/", "/events/", "/events/1/", "/events/search/",
+         "/events/recommend/", "/plans/", "/plans/1/",
+         "/plans/statistics/"]
 
 
 @pytest.fixture
 def client():
     """Тестовый клиент, обращающийся к разрешённому хосту localhost."""
     return Client(SERVER_NAME="localhost")
+
+
+def db_rows(query, params=()):
+    """Выполнить SQL-запрос к базе проекта и вернуть строки как словари."""
+    conn = get_connection()
+    conn.row_factory = sqlite3.Row
+    try:
+        return [dict(row) for row in conn.execute(query, params)]
+    finally:
+        conn.close()
 
 
 def template_names(response):
@@ -54,8 +69,11 @@ def test_pages_extend_base_template(client, url):
 @pytest.mark.parametrize("url, view_name, kwargs", [
     ("/", "index", {}),
     ("/events/", "event_list", {}),
+    ("/events/search/", "event_search", {}),
+    ("/events/recommend/", "event_recommend", {}),
     ("/events/3/", "event_detail", {"event_id": 3}),
     ("/plans/", "plan_list", {}),
+    ("/plans/statistics/", "statistics", {}),
     ("/plans/2/", "plan_detail", {"plan_id": 2}),
 ])
 def test_url_resolves_to_view(url, view_name, kwargs):
@@ -70,7 +88,10 @@ def test_named_urls_with_namespaces():
     assert reverse("homepage:index") == "/"
     assert reverse("catalog:list") == "/events/"
     assert reverse("catalog:detail", args=[3]) == "/events/3/"
+    assert reverse("catalog:search") == "/events/search/"
+    assert reverse("catalog:recommend") == "/events/recommend/"
     assert reverse("planner:list") == "/plans/"
+    assert reverse("planner:statistics") == "/plans/statistics/"
     assert reverse("planner:detail", args=[2]) == "/plans/2/"
 
 
@@ -86,17 +107,118 @@ def test_templates_are_used_with_includes(client):
 
 
 def test_events_page_count_filter_and_cards(client):
-    """Фильтр length, цикл по Event и ссылки через {% url %}."""
-    events, _users, plans = load_data()
+    """Список мероприятий из SQLite: length, цикл, карточки, ссылки."""
+    events = db_rows("SELECT * FROM events ORDER BY id")
     html = client.get("/events/").content.decode()
     assert f"Всего мероприятий: {len(events)}" in html
     for event in events:
-        assert escape(event.name) in html
-        assert f'href="/events/{event.id}/"' in html
-        assert event.event_date.strftime("%d.%m.%Y") in html
-        assert f"{floatformat(event.ticket_price, 2)} руб." in html
-        seats = remaining_seats(plans, event)
-        assert (f"свободно мест: {seats}" if seats else "мест нет") in html
+        assert escape(event["name"]) in html
+        assert f'href="/events/{event["id"]}/"' in html
+        assert date.fromisoformat(event["event_date"]).strftime(
+            "%d.%m.%Y") in html
+        assert f"{floatformat(event['ticket_price'], 2)} руб." in html
+
+
+def test_events_page_shows_free_seats_from_sql(client):
+    """Число свободных мест вычисляет SQL-запрос."""
+    rows = db_rows(
+        "SELECT e.id, e.capacity - (SELECT COUNT(*) FROM plans AS p "
+        "WHERE p.event_id = e.id AND p.is_cancelled = 0) AS seats_left "
+        "FROM events AS e"
+    )
+    html = client.get("/events/").content.decode()
+    assert html.count("свободно мест:") == sum(
+        row["seats_left"] > 0 for row in rows)
+    assert html.count("мест нет") == sum(
+        row["seats_left"] <= 0 for row in rows)
+
+
+def test_events_filter_by_category_uses_where(client):
+    """Параметр category оставляет только мероприятия категории."""
+    events = db_rows("SELECT * FROM events")
+    category = events[0]["category"]
+    html = client.get("/events/", {"category": category}).content.decode()
+    for event in events:
+        assert (escape(event["name"]) in html) == (
+            event["category"] == category)
+
+
+@pytest.mark.parametrize("value", ["' OR 1=1 --", "x'; DROP TABLE events;--"])
+def test_sql_injection_in_category_is_harmless(client, value):
+    """Значение передаётся параметром ?, таблицы остаются целыми."""
+    response = client.get("/events/", {"category": value})
+    assert response.status_code == 200
+    assert "Мероприятия не найдены." in response.content.decode()
+    assert db_rows("SELECT COUNT(*) AS n FROM events")[0]["n"] > 0
+
+
+def test_event_search_form_without_parameters(client):
+    """Без параметров показывается только форма поиска."""
+    response = client.get("/events/search/")
+    html = response.content.decode()
+    assert response.status_code == 200
+    assert 'name="date_from"' in html and 'name="max_price"' in html
+    assert "Найдено:" not in html
+
+
+def test_event_search_by_dates_and_price(client):
+    """Поиск возвращает мероприятия периода не дороже заданной цены."""
+    params = {"date_from": "2026-11-01", "date_to": "2026-12-31",
+              "max_price": "2000"}
+    expected = db_rows(
+        "SELECT name FROM events WHERE event_date BETWEEN ? AND ? "
+        "AND ticket_price <= ?", ["2026-11-01", "2026-12-31", 2000.0])
+    others = db_rows(
+        "SELECT name FROM events WHERE NOT (event_date BETWEEN ? AND ? "
+        "AND ticket_price <= ?)", ["2026-11-01", "2026-12-31", 2000.0])
+    html = client.get("/events/search/", params).content.decode()
+    assert f"Найдено: {len(expected)}" in html
+    for row in expected:
+        assert escape(row["name"]) in html
+    for row in others:
+        assert escape(row["name"]) not in html
+
+
+@pytest.mark.parametrize("params, message", [
+    ({"date_from": "31.12.2026"}, "формате ГГГГ-ММ-ДД"),
+    ({"max_price": "дорого"}, "неотрицательное число"),
+    ({"max_price": "-5"}, "неотрицательное число"),
+])
+def test_event_search_reports_invalid_input(client, params, message):
+    """Некорректный ввод даёт сообщение и не вызывает ошибку сервера."""
+    response = client.get("/events/search/", params)
+    assert response.status_code == 200
+    assert message in response.content.decode()
+
+
+def test_event_recommend_matches_domain_rules(client):
+    """SQL-подбор совпадает с проверками объектной модели ПР3."""
+    events, users, plans = load_data()
+    today = date.today()
+    for user in users:
+        expected = {
+            event.name for event in events
+            if user.is_interested_in(event)
+            and event.is_age_allowed(user.age)
+            and event.is_budget_enough(user.budget)
+            and event.event_date >= today
+            and remaining_seats(plans, event) > 0
+            and not any(plan.user.id == user.id and plan.event.id == event.id
+                        and not plan.is_cancelled for plan in plans)
+        }
+        html = client.get("/events/recommend/",
+                          {"user": user.id}).content.decode()
+        assert f"Подходящих мероприятий: {len(expected)}" in html
+        for event in events:
+            assert (escape(event.name) in html) == (event.name in expected)
+
+
+@pytest.mark.parametrize("value", ["999", "abc", "1 OR 1=1"])
+def test_event_recommend_unknown_user(client, value):
+    """Неизвестный или некорректный номер посетителя – сообщение."""
+    response = client.get("/events/recommend/", {"user": value})
+    assert response.status_code == 200
+    assert "не найден" in response.content.decode()
 
 
 def test_event_detail_uses_object_attributes_and_seats(client):
@@ -111,22 +233,70 @@ def test_event_detail_uses_object_attributes_and_seats(client):
         assert (f"свободно мест: {seats}" if seats else "мест нет") in html
 
 
-def test_plans_page_shows_related_objects_and_status(client):
-    """Записи показывают связанные Event и User и include статуса."""
-    _events, _users, plans = load_data()
+def test_plans_page_shows_joined_data_and_status(client):
+    """Список записей из SQLite: JOIN, include статуса, фильтр status."""
+    plans = db_rows(
+        "SELECT p.id, p.is_cancelled, e.name AS event_name, "
+        "u.name AS user_name FROM plans AS p "
+        "JOIN events AS e ON p.event_id = e.id "
+        "JOIN users AS u ON p.user_id = u.id")
     html = client.get("/plans/").content.decode()
     assert f"Всего записей: {len(plans)}" in html
     assert html.count("plan-status-cancelled") == sum(
-        plan.is_cancelled for plan in plans
-    )
+        row["is_cancelled"] for row in plans)
     assert html.count("plan-status-active") == sum(
-        not plan.is_cancelled for plan in plans
-    )
+        not row["is_cancelled"] for row in plans)
+    for row in plans:
+        assert escape(row["event_name"]) in html
+        assert escape(row["user_name"]) in html
+        assert f'href="/plans/{row["id"]}/"' in html
+
+
+def test_plans_page_active_filter(client):
+    """Параметр status=active убирает отменённые записи."""
+    active = db_rows("SELECT COUNT(*) AS n FROM plans WHERE is_cancelled=0")
+    html = client.get("/plans/", {"status": "active"}).content.decode()
+    assert f"Всего записей: {active[0]['n']}" in html
+    assert "plan-status-cancelled" not in html
+
+
+def test_plan_detail_shows_related_objects(client):
+    """Карточка записи показывает связанные Event и User и статус."""
+    _events, _users, plans = load_data()
     for plan in plans:
         detail = client.get(f"/plans/{plan.id}/").content.decode()
         assert escape(plan.event.name) in detail
         assert escape(plan.user.name) in detail
         assert ("Отменена" if plan.is_cancelled else "Активна") in detail
+
+
+def test_statistics_page_matches_console_statistics(client):
+    """Агрегаты SQLite совпадают со статистикой консольной версии."""
+    events, _users, plans = load_data()
+    stats = plan_statistics(events, plans)
+    html = client.get("/plans/statistics/").content.decode()
+    assert f"Активных записей: {stats['plans']}" in html
+    assert f"{floatformat(stats['total_price'], 2)} руб." in html
+    for title in ("Записи по мероприятиям", "Популярные мероприятия",
+                  "Категории", "Посетители"):
+        assert title in html
+
+
+def test_statistics_lists_events_without_plans(client):
+    """LEFT JOIN сохраняет мероприятия без записей со значением 0."""
+    empty = db_rows(
+        "SELECT e.name FROM events AS e LEFT JOIN plans AS p "
+        "ON p.event_id = e.id AND p.is_cancelled = 0 "
+        "GROUP BY e.id HAVING COUNT(p.id) = 0")
+    html = client.get("/plans/statistics/").content.decode()
+    for row in empty:
+        assert escape(row["name"]) in html
+
+
+def test_navigation_links_to_statistics(client):
+    """Навигация ведёт во все основные разделы, включая статистику."""
+    html = client.get("/").content.decode()
+    assert 'href="/plans/statistics/"' in html
 
 
 @pytest.mark.parametrize("url, text", [

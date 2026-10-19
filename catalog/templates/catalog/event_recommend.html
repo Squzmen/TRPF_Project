@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Подбор мероприятия – Культурный досуг
+{% endblock %}
+
+{% block content %}
+    <h1>Подбор мероприятия для посетителя</h1>
+
+    <p>
+        Показываются предстоящие мероприятия любимой категории посетителя,
+        подходящие по возрасту и бюджету, со свободными местами и без
+        активной записи этого посетителя.
+    </p>
+
+    <form method="get" class="row g-2 align-items-end mb-4">
+        <div class="col-auto">
+            <label for="user" class="form-label">Посетитель</label>
+            <select id="user" name="user" class="form-select">
+                <option value="">Выберите посетителя</option>
+                {% for visitor in users %}
+                    <option
+                        value="{{ visitor.id }}"
+                        {% if visitor.id|stringformat:"s" == raw_user %}selected{% endif %}
+                    >
+                        {{ visitor.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">Подобрать</button>
+        </div>
+    </form>
+
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    {% if selected %}
+        <p>
+            {{ selected.name }}, {{ selected.age }} лет, любимая категория –
+            {{ selected.preferred_category }}, бюджет –
+            {{ selected.budget|floatformat:2 }} руб.
+        </p>
+        <h2 class="h4">Подходящих мероприятий: {{ events|length }}</h2>
+        {% for event in events %}
+            {% include "catalog/includes/event_card.html" with seats_left=event.seats_left %}
+        {% empty %}
+            <p>Подходящих мероприятий нет.</p>
+        {% endfor %}
+    {% endif %}
+
+    <a
+        href="{% url 'catalog:list' %}"
+        class="btn btn-outline-secondary mt-3"
+    >
+        ← к списку мероприятий
+    </a>
+{% endblock %}

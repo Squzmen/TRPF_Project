@@ -8,6 +8,20 @@
     <h1>Планы посетителей</h1>
 
     <p>
+        {% if only_active %}
+            Показаны только активные записи.
+            <a href="{% url 'planner:list' %}">Показать все</a>
+        {% else %}
+            Показаны все записи, включая отменённые.
+            <a href="{% url 'planner:list' %}?status=active">
+                Только активные
+            </a>
+        {% endif %}
+        ·
+        <a href="{% url 'planner:statistics' %}">Статистика</a>
+    </p>
+
+    <p>
         Всего записей: {{ plans|length }}
     </p>
 
@@ -15,8 +29,8 @@
         {% for plan in plans %}
             <li class="list-group-item d-flex justify-content-between align-items-center">
                 <a href="{% url 'planner:detail' plan.id %}">
-                    {{ plan.user.name }} – {{ plan.event.name }},
-                    {{ plan.event.event_date|date:"d.m.Y" }}
+                    {{ plan.user_name }} – {{ plan.event_name }},
+                    {{ plan.event_date|date:"d.m.Y" }}
                 </a>
                 {% include "planner/includes/plan_status.html" %}
             </li>

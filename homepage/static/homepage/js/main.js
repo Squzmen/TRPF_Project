@@ -5,18 +5,27 @@ if (yearElement) {
     yearElement.textContent = new Date().getFullYear();
 }
 
-// Подсветка пункта навигации, соответствующего открытой странице.
+// Подсветка пункта навигации, соответствующего открытой странице:
+// выбирается ссылка с самым длинным подходящим адресом.
 const currentPath = window.location.pathname;
+let currentLink = null;
 
 document.querySelectorAll(".site-nav a").forEach((link) => {
     const linkPath = link.getAttribute("href");
-    const isHome = linkPath === "/";
-    const isCurrent = isHome
+    const matches = linkPath === "/"
         ? currentPath === "/"
         : currentPath.startsWith(linkPath);
 
-    if (isCurrent) {
-        link.classList.add("active");
-        link.setAttribute("aria-current", "page");
+    if (
+        matches
+        && (!currentLink
+            || linkPath.length > currentLink.getAttribute("href").length)
+    ) {
+        currentLink = link;
     }
 });
+
+if (currentLink) {
+    currentLink.classList.add("active");
+    currentLink.setAttribute("aria-current", "page");
+}

@@ -7,12 +7,38 @@
 {% block content %}
     <h1>Мероприятия</h1>
 
+    <form method="get" class="row g-2 align-items-end mb-3">
+        <div class="col-auto">
+            <label for="category" class="form-label">Категория</label>
+            <select id="category" name="category" class="form-select">
+                <option value="">Все категории</option>
+                {% for item in categories %}
+                    <option
+                        value="{{ item.category }}"
+                        {% if item.category == category %}selected{% endif %}
+                    >
+                        {{ item.category }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">Показать</button>
+        </div>
+    </form>
+
     <p>
-        Всего мероприятий: {{ items|length }}
+        <a href="{% url 'catalog:search' %}">Поиск по датам и цене</a>
+        ·
+        <a href="{% url 'catalog:recommend' %}">Подобрать мероприятие для посетителя</a>
     </p>
 
-    {% for item in items %}
-        {% include "catalog/includes/event_card.html" with event=item.event seats_left=item.seats_left %}
+    <p>
+        Всего мероприятий: {{ events|length }}
+    </p>
+
+    {% for event in events %}
+        {% include "catalog/includes/event_card.html" with seats_left=event.seats_left %}
     {% empty %}
         <p>Мероприятия не найдены.</p>
     {% endfor %}
