@@ -25,5 +25,23 @@
     "age_limit": 12,
     "ticket_price": 2100.0,
     "capacity": 1
+  },
+  {
+    "id": 4,
+    "name": "Джазовый вечер",
+    "category": "концерт",
+    "event_date": "2026-11-28",
+    "age_limit": 16,
+    "ticket_price": 1800.0,
+    "capacity": 4
+  },
+  {
+    "id": 5,
+    "name": "Мастер-класс по гончарному делу",
+    "category": "мастер-класс",
+    "event_date": "2026-11-21",
+    "age_limit": 10,
+    "ticket_price": 1200.0,
+    "capacity": 5
   }
 ]

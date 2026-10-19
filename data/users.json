@@ -1,1 +1,37 @@
-[]
+[
+  {
+    "id": 1,
+    "name": "Анна",
+    "age": 20,
+    "preferred_category": "театр",
+    "budget": 2000.0
+  },
+  {
+    "id": 2,
+    "name": "Борис",
+    "age": 34,
+    "preferred_category": "концерт",
+    "budget": 3000.0
+  },
+  {
+    "id": 3,
+    "name": "Вера",
+    "age": 15,
+    "preferred_category": "выставка",
+    "budget": 800.0
+  },
+  {
+    "id": 4,
+    "name": "Глеб",
+    "age": 28,
+    "preferred_category": "театр",
+    "budget": 2500.0
+  },
+  {
+    "id": 5,
+    "name": "Дарья",
+    "age": 41,
+    "preferred_category": "выставка",
+    "budget": 1500.0
+  }
+]

@@ -1,5 +1,6 @@
-"""Тестовые объекты предметной области."""
+"""Тестовые объекты предметной области и настройка Django для тестов."""
 
+import os
 from datetime import date
 
 import pytest
@@ -18,3 +19,10 @@ def event():
 def user():
     """Посетитель, которому спектакль подходит."""
     return User(1, "Анна", 20, "театр", 2000)
+
+
+def pytest_configure(config):
+    """Подготовить Django до сбора тестов веб-слоя (ПР5)."""
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "leisure.settings")
+    import django
+    django.setup()

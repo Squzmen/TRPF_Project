@@ -7,6 +7,7 @@ venv/
 .vscode/
 .pytest_cache/
 .coverage
+db.sqlite3
 htmlcov/
 .DS_Store
 Thumbs.db
@@ -21,3 +22,4 @@ Thumbs.db
 # Отчет ПР2 является частью проекта и сохраняется вместе с ним.
 !ОТЧЕТ_ПР2.md
 !ОТЧЕТ_ПР3.md
+!ОТЧЕТ_ПР5.md
