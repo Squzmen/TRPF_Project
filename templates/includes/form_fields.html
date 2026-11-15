@@ -1,0 +1,21 @@
+{# Общий вывод формы: общие ошибки, подписи, поля, подсказки, ошибки полей. #}
+{% if form.non_field_errors %}
+    <div class="alert alert-danger form-errors">
+        {% for error in form.non_field_errors %}
+            <div>{{ error }}</div>
+        {% endfor %}
+    </div>
+{% endif %}
+
+{% for field in form %}
+    <div class="mb-3">
+        {{ field.label_tag }}
+        {{ field }}
+        {% if field.help_text %}
+            <div class="form-text">{{ field.help_text }}</div>
+        {% endif %}
+        {% for error in field.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+    </div>
+{% endfor %}

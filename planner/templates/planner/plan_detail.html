@@ -1,51 +1,52 @@
 {% extends "base.html" %}
 
 {% block title %}
-    {% if plan %}
-        Запись №{{ plan.id }} – Культурный досуг
-    {% else %}
-        Запись не найдена – Культурный досуг
-    {% endif %}
+    Запись №{{ plan.id }} – Культурный досуг
 {% endblock %}
 
 {% block content %}
-    {% if plan %}
-        <div class="card">
-            <div class="card-body">
-                <h1 class="card-title">
-                    Запись №{{ plan.id }}
-                </h1>
+    <div class="card">
+        <div class="card-body">
+            <h1 class="card-title">
+                Запись №{{ plan.id }}
+            </h1>
 
-                <p class="card-text">
-                    <strong>Мероприятие:</strong>
-                    <a href="{% url 'catalog:detail' plan.event.id %}">
-                        {{ plan.event.name }}
-                    </a>
-                </p>
+            <p class="card-text">
+                <strong>Мероприятие:</strong>
+                <a href="{{ plan.event.get_absolute_url }}">
+                    {{ plan.event.name }}
+                </a>
+            </p>
 
-                <p class="card-text">
-                    <strong>Дата:</strong>
-                    {{ plan.event.event_date|date:"d.m.Y" }}
-                </p>
+            <p class="card-text">
+                <strong>Дата:</strong>
+                {{ plan.event.event_date|date:"d.m.Y" }}
+            </p>
 
-                <p class="card-text">
-                    <strong>Посетитель:</strong> {{ plan.user.name }}
-                </p>
+            <p class="card-text">
+                <strong>Посетитель:</strong> {{ plan.user.name }}
+                ({{ plan.user.age }} лет)
+            </p>
 
+            <p class="card-text">
+                <strong>Билет:</strong>
+                {{ plan.event.ticket_price|floatformat:2 }} руб.
+            </p>
+
+            {% if plan.comment %}
                 <p class="card-text">
-                    <strong>Статус:</strong>
-                    {% include "planner/includes/plan_status.html" %}
+                    <strong>Комментарий:</strong> {{ plan.comment|linebreaksbr }}
                 </p>
-            </div>
+            {% endif %}
+
+            <p class="card-text">
+                <strong>Статус:</strong>
+                {% include "planner/includes/plan_status.html" %}
+            </p>
+
+            {% include "planner/includes/plan_actions.html" %}
         </div>
-    {% else %}
-        <h1 class="text-danger">
-            Запись не найдена
-        </h1>
-        <p>
-            Запись с указанным идентификатором отсутствует.
-        </p>
-    {% endif %}
+    </div>
 
     <a
         href="{% url 'planner:list' %}"

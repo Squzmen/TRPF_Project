@@ -1,234 +1,94 @@
 """Страницы каталога мероприятий.
 
-Списки и поиск получают данные из базы SQLite параметризованными
-SQL-запросами (sql/queries.sql), карточка мероприятия по-прежнему
-использует объекты ПР3 и JSON.
+ПР9: данные получаются средствами Django ORM (модели Event, User, Plan)
+вместо SQL-запросов через sqlite3 из ПР7.
+ПР10: менеджеры Event.objects.with_seats() и Plan.objects.active(),
+карточка мероприятия открывается по slug.
+ПР11: поиск через EventSearchForm, создание и изменение мероприятия
+через EventForm с загрузкой постера (request.FILES).
 """
 
-import math
-import sqlite3
 from datetime import date
 
-from django.shortcuts import render
+from django.contrib import messages
+from django.db.models import Q
+from django.shortcuts import get_object_or_404, redirect, render
 
-from db.database import get_connection, rows_with_dates
-from events import find_event, get_event_date_status
-from plans import remaining_seats
-from storage import load_data
+from catalog.forms import EventForm, EventSearchForm
+from catalog.models import Event
+from events import get_event_date_status
+from planner.models import Plan
+from visitors.models import User
 
-# Запрос 1 из sql/queries.sql: список мероприятий со свободными местами.
-QUERY_EVENTS = """
-    SELECT
-        e.id,
-        e.name,
-        e.category,
-        e.event_date,
-        e.age_limit,
-        e.ticket_price,
-        e.capacity,
-        e.capacity - (
-            SELECT COUNT(*)
-            FROM plans AS p
-            WHERE p.event_id = e.id
-              AND p.is_cancelled = 0
-        ) AS seats_left
-    FROM events AS e
-    ORDER BY e.event_date, e.name
-"""
-
-# Запрос 2: категории для выпадающего списка.
-QUERY_CATEGORIES = """
-    SELECT DISTINCT
-        category
-    FROM events
-    ORDER BY category
-"""
-
-# Запрос 3: посетители для выпадающего списка.
-QUERY_USERS = """
-    SELECT
-        id,
-        name,
-        age,
-        preferred_category,
-        budget
-    FROM users
-    ORDER BY name
-"""
-
-# Запрос 4: мероприятия выбранной категории.
-QUERY_EVENTS_BY_CATEGORY = """
-    SELECT
-        e.id,
-        e.name,
-        e.category,
-        e.event_date,
-        e.age_limit,
-        e.ticket_price,
-        e.capacity,
-        e.capacity - (
-            SELECT COUNT(*)
-            FROM plans AS p
-            WHERE p.event_id = e.id
-              AND p.is_cancelled = 0
-        ) AS seats_left
-    FROM events AS e
-    WHERE e.category = ?
-    ORDER BY e.event_date, e.name
-"""
-
-# Запрос 5: поиск по периоду дат и предельной цене билета.
-QUERY_EVENTS_SEARCH = """
-    SELECT
-        e.id,
-        e.name,
-        e.category,
-        e.event_date,
-        e.age_limit,
-        e.ticket_price,
-        e.capacity,
-        e.capacity - (
-            SELECT COUNT(*)
-            FROM plans AS p
-            WHERE p.event_id = e.id
-              AND p.is_cancelled = 0
-        ) AS seats_left
-    FROM events AS e
-    WHERE e.event_date BETWEEN ? AND ?
-      AND e.ticket_price <= ?
-    ORDER BY e.event_date, e.name
-"""
-
-# Запрос 6: подбор мероприятий для посетителя.
-QUERY_EVENTS_FOR_USER = """
-    SELECT
-        e.id,
-        e.name,
-        e.category,
-        e.event_date,
-        e.age_limit,
-        e.ticket_price,
-        e.capacity,
-        e.capacity - (
-            SELECT COUNT(*)
-            FROM plans AS p
-            WHERE p.event_id = e.id
-              AND p.is_cancelled = 0
-        ) AS seats_left
-    FROM events AS e
-    JOIN users AS u
-        ON u.id = ?
-    WHERE e.category = u.preferred_category
-      AND e.age_limit <= u.age
-      AND e.ticket_price <= u.budget
-      AND e.event_date >= ?
-      AND e.capacity > (
-            SELECT COUNT(*)
-            FROM plans AS p
-            WHERE p.event_id = e.id
-              AND p.is_cancelled = 0
-      )
-      AND e.id NOT IN (
-            SELECT p.event_id
-            FROM plans AS p
-            WHERE p.user_id = u.id
-              AND p.is_cancelled = 0
-      )
-    ORDER BY e.event_date, e.name
-"""
-
-MAX_PRICE = 1_000_000.0
+# Разрешённые значения параметра sort и соответствующие поля order_by().
+EVENT_SORT_FIELDS = {
+    "date": ("event_date", "name"),
+    "price": ("ticket_price", "name"),
+    "-price": ("-ticket_price", "name"),
+    "name": ("name",),
+}
 
 
 def event_list(request):
-    """Страница /events/: список из SQLite, фильтр по категории."""
+    """Страница /events/: фильтр по категории, поиск и сортировка."""
     category = request.GET.get("category", "").strip()
+    query = request.GET.get("q", "").strip()
+    sort = request.GET.get("sort", "date")
+    if sort not in EVENT_SORT_FIELDS:
+        sort = "date"
 
-    conn = get_connection()
-    conn.row_factory = sqlite3.Row
-    try:
-        categories = conn.execute(QUERY_CATEGORIES).fetchall()
-        if category:
-            rows = conn.execute(
-                QUERY_EVENTS_BY_CATEGORY,
-                [category],
-            ).fetchall()
-        else:
-            rows = conn.execute(QUERY_EVENTS).fetchall()
-    finally:
-        conn.close()
+    events = Event.objects.with_seats()
+    if category:
+        events = events.filter(category__iexact=category)
+    if query:
+        # Поиск по нескольким полям: название или категория.
+        events = events.filter(
+            Q(name__icontains=query) | Q(category__icontains=query)
+        )
+    events = events.order_by(*EVENT_SORT_FIELDS[sort])
+
+    categories = (
+        Event.objects
+        .order_by("category")
+        .values_list("category", flat=True)
+        .distinct()
+    )
 
     return render(
         request,
         "catalog/event_list.html",
         {
-            "events": rows_with_dates(rows, "event_date"),
+            "events": events,
             "categories": categories,
             "category": category,
+            "query": query,
+            "sort": sort,
         },
     )
 
 
-def parse_date(value, default, label, errors):
-    """Разобрать дату ГГГГ-ММ-ДД; при ошибке добавить сообщение."""
-    if not value:
-        return default
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        errors.append(f"{label}: введите дату в формате ГГГГ-ММ-ДД.")
-        return default
-
-
-def parse_price(value, errors):
-    """Разобрать предельную цену билета; при ошибке добавить сообщение."""
-    if not value:
-        return MAX_PRICE
-    try:
-        price = float(value.replace(",", "."))
-    except ValueError:
-        price = -1.0
-    if not math.isfinite(price) or price < 0:
-        errors.append("Цена: введите неотрицательное число.")
-        return MAX_PRICE
-    return price
-
-
 def event_search(request):
-    """Страница /events/search/: поиск по датам и цене билета."""
-    raw_from = request.GET.get("date_from", "").strip()
-    raw_to = request.GET.get("date_to", "").strip()
-    raw_price = request.GET.get("max_price", "").strip()
+    """Страница /events/search/: поиск по периоду дат и цене билета."""
     submitted = bool(request.GET)
+    # Форма связывается с GET-данными только после отправки.
+    form = EventSearchForm(request.GET if submitted else None)
 
-    errors = []
     events = []
-    if submitted:
-        date_from = parse_date(raw_from, date.today(), "Дата «с»", errors)
-        date_to = parse_date(raw_to, date.max, "Дата «по»", errors)
-        max_price = parse_price(raw_price, errors)
-        if not errors:
-            conn = get_connection()
-            conn.row_factory = sqlite3.Row
-            try:
-                rows = conn.execute(
-                    QUERY_EVENTS_SEARCH,
-                    [date_from.isoformat(), date_to.isoformat(), max_price],
-                ).fetchall()
-            finally:
-                conn.close()
-            events = rows_with_dates(rows, "event_date")
+    if submitted and form.is_valid():
+        data = form.cleaned_data
+        # Несколько условий в одном filter() объединяются через AND.
+        events = Event.objects.with_seats().filter(
+            event_date__range=(data["date_from"], data["date_to"]),
+            ticket_price__lte=data["max_price"],
+        ).order_by("event_date", "name")
 
     return render(
         request,
         "catalog/event_search.html",
         {
+            "form": form,
             "events": events,
-            "errors": errors,
             "submitted": submitted,
-            "date_from": raw_from,
-            "date_to": raw_to,
-            "max_price": raw_price,
         },
     )
 
@@ -237,28 +97,32 @@ def event_recommend(request):
     """Страница /events/recommend/: подбор мероприятий для посетителя."""
     raw_user = request.GET.get("user", "").strip()
 
-    conn = get_connection()
-    conn.row_factory = sqlite3.Row
-    try:
-        users = conn.execute(QUERY_USERS).fetchall()
-        selected = None
-        events = []
-        error = None
-        if raw_user:
-            selected = next(
-                (user for user in users if str(user["id"]) == raw_user),
-                None,
+    users = User.objects.order_by("name")
+    selected = None
+    events = []
+    error = None
+    if raw_user:
+        if raw_user.isdigit():
+            selected = User.objects.filter(pk=int(raw_user)).first()
+        if selected is None:
+            error = "Посетитель с таким номером не найден."
+        else:
+            # Мероприятия, на которые посетитель уже записан (активно).
+            booked = Plan.objects.active().filter(
+                user=selected,
+            ).values_list("event_id", flat=True)
+            events = (
+                Event.objects.with_seats()
+                .filter(
+                    category__iexact=selected.preferred_category,
+                    age_limit__lte=selected.age,
+                    ticket_price__lte=selected.budget,
+                    seats_left__gt=0,
+                )
+                .upcoming(date.today())
+                .exclude(pk__in=booked)
+                .order_by("event_date", "name")
             )
-            if selected is None:
-                error = "Посетитель с таким номером не найден."
-            else:
-                rows = conn.execute(
-                    QUERY_EVENTS_FOR_USER,
-                    [selected["id"], date.today().isoformat()],
-                ).fetchall()
-                events = rows_with_dates(rows, "event_date")
-    finally:
-        conn.close()
 
     return render(
         request,
@@ -273,26 +137,65 @@ def event_recommend(request):
     )
 
 
-def event_detail(request, event_id):
-    """Страница /events/<id>/; если мероприятия нет – статус 404."""
-    events_list, _users, plans_list = load_data()
-    event = find_event(events_list, event_id)
+def event_redirect(request, event_id):
+    """Старый адрес /events/<id>/ перенаправляет на адрес по slug."""
+    event = get_object_or_404(Event, pk=event_id)
+    return redirect(event, permanent=True)
 
-    context = {
-        "event": event,
-        "seats_left": None,
-        "date_status": None,
-    }
-    if event is not None:
-        context["seats_left"] = remaining_seats(plans_list, event)
-        context["date_status"] = get_event_date_status(
-            event.event_date,
-            date.today(),
-        )
+
+def event_detail(request, slug):
+    """Страница /events/<slug>/; если мероприятия нет – ответ 404."""
+    event = get_object_or_404(Event.objects.with_seats(), slug=slug)
+    # Обратная связь related_name="plans": активные записи мероприятия.
+    plans = event.plans.active().select_related("user")
 
     return render(
         request,
         "catalog/event_detail.html",
-        context,
-        status=404 if event is None else 200,
+        {
+            "event": event,
+            "seats_left": event.seats_left,
+            "date_status": get_event_date_status(
+                event.event_date,
+                date.today(),
+            ),
+            "plans": plans,
+        },
+    )
+
+
+def event_create(request):
+    """Страница /events/create/: новое мероприятие с постером."""
+    if request.method == "POST":
+        # Файлы формы передаются отдельно – через request.FILES.
+        form = EventForm(request.POST, request.FILES)
+        if form.is_valid():
+            event = form.save()
+            messages.success(request, f"Мероприятие «{event}» добавлено.")
+            return redirect(event)
+    else:
+        form = EventForm()
+    return render(
+        request,
+        "catalog/event_form.html",
+        {"form": form, "title": "Новое мероприятие"},
+    )
+
+
+def event_update(request, slug):
+    """Страница /events/<slug>/edit/: изменение мероприятия и постера."""
+    event = get_object_or_404(Event, slug=slug)
+    form = EventForm(
+        request.POST or None,
+        request.FILES or None,
+        instance=event,
+    )
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Изменения сохранены.")
+        return redirect(event)
+    return render(
+        request,
+        "catalog/event_form.html",
+        {"form": form, "title": f"Изменение: {event.name}", "event": event},
     )

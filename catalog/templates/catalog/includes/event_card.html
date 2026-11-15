@@ -25,10 +25,18 @@
         </p>
 
         <a
-            href="{% url 'catalog:detail' event.id %}"
+            href="{{ event.get_absolute_url }}"
             class="btn btn-primary"
         >
             Подробнее
         </a>
+        {% if signup_user %}
+            <a
+                href="{% url 'planner:create' %}?event={{ event.id }}&amp;user={{ signup_user }}"
+                class="btn btn-success"
+            >
+                Записаться
+            </a>
+        {% endif %}
     </div>
 </article>

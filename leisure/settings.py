@@ -1,5 +1,6 @@
 """Настройки Django-проекта «Система планирования культурного досуга»."""
 
+import importlib.util
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -24,6 +25,7 @@ INSTALLED_APPS = [
     "homepage",
     "catalog",
     "planner",
+    "visitors",
 ]
 
 MIDDLEWARE = [
@@ -35,6 +37,14 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# Django Debug Toolbar (ПР10): только для локальной разработки, если
+# пакет установлен (pip install django-debug-toolbar).
+DEBUG_TOOLBAR = DEBUG and importlib.util.find_spec("debug_toolbar") is not None
+if DEBUG_TOOLBAR:
+    INSTALLED_APPS.append("debug_toolbar")
+    MIDDLEWARE.insert(0, "debug_toolbar.middleware.DebugToolbarMiddleware")
+    INTERNAL_IPS = ["127.0.0.1"]
 
 ROOT_URLCONF = "leisure.urls"
 
@@ -48,6 +58,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "catalog.context_processors.leisure_context",
             ],
         },
     },
@@ -90,5 +101,9 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+
+# Загружаемые пользователями файлы (ПР11): постеры мероприятий.
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
