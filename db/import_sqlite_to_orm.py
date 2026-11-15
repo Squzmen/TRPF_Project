@@ -84,7 +84,12 @@ def import_data(source=SOURCE_DB):
                 defaults={
                     "event_id": row["event_id"],
                     "user_id": row["user_id"],
-                    "is_cancelled": bool(row["is_cancelled"]),
+                    # ПР10: признак отмены переносится в поле status.
+                    "status": (
+                        Plan.Status.CANCELLED
+                        if row["is_cancelled"]
+                        else Plan.Status.ACTIVE
+                    ),
                 },
             )
     return {

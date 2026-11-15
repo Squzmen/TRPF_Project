@@ -2,14 +2,16 @@
 
 ПР9: данные получаются средствами Django ORM (модели Event, User, Plan)
 вместо SQL-запросов через sqlite3 из ПР7.
+ПР10: менеджеры Event.objects.with_seats() и Plan.objects.active(),
+карточка мероприятия открывается по slug.
 """
 
 import math
 from datetime import date
 from decimal import Decimal
 
-from django.db.models import Count, F, Q
-from django.shortcuts import get_object_or_404, render
+from django.db.models import Q
+from django.shortcuts import get_object_or_404, redirect, render
 
 from catalog.models import Event
 from events import get_event_date_status
@@ -27,15 +29,6 @@ EVENT_SORT_FIELDS = {
 }
 
 
-def events_with_seats():
-    """Мероприятия с числом активных записей и свободных мест."""
-    return Event.objects.annotate(
-        active_plans=Count("plans", filter=Q(plans__is_cancelled=False)),
-    ).annotate(
-        seats_left=F("capacity") - F("active_plans"),
-    )
-
-
 def event_list(request):
     """Страница /events/: фильтр по категории, поиск и сортировка."""
     category = request.GET.get("category", "").strip()
@@ -44,7 +37,7 @@ def event_list(request):
     if sort not in EVENT_SORT_FIELDS:
         sort = "date"
 
-    events = events_with_seats()
+    events = Event.objects.with_seats()
     if category:
         events = events.filter(category__iexact=category)
     if query:
@@ -114,7 +107,7 @@ def event_search(request):
         max_price = parse_price(raw_price, errors)
         if not errors:
             # Несколько условий в одном filter() объединяются через AND.
-            events = events_with_seats().filter(
+            events = Event.objects.with_seats().filter(
                 event_date__range=(date_from, date_to),
                 ticket_price__lte=Decimal(str(max_price)),
             ).order_by("event_date", "name")
@@ -148,19 +141,18 @@ def event_recommend(request):
             error = "Посетитель с таким номером не найден."
         else:
             # Мероприятия, на которые посетитель уже записан (активно).
-            booked = Plan.objects.filter(
+            booked = Plan.objects.active().filter(
                 user=selected,
-                is_cancelled=False,
             ).values_list("event_id", flat=True)
             events = (
-                events_with_seats()
+                Event.objects.with_seats()
                 .filter(
                     category__iexact=selected.preferred_category,
                     age_limit__lte=selected.age,
                     ticket_price__lte=selected.budget,
-                    event_date__gte=date.today(),
                     seats_left__gt=0,
                 )
+                .upcoming(date.today())
                 .exclude(pk__in=booked)
                 .order_by("event_date", "name")
             )
@@ -178,11 +170,17 @@ def event_recommend(request):
     )
 
 
-def event_detail(request, event_id):
-    """Страница /events/<id>/; если мероприятия нет – ответ 404."""
-    event = get_object_or_404(events_with_seats(), pk=event_id)
-    # Обратная связь related_name="plans": записи этого мероприятия.
-    plans = event.plans.filter(is_cancelled=False).select_related("user")
+def event_redirect(request, event_id):
+    """Старый адрес /events/<id>/ перенаправляет на адрес по slug."""
+    event = get_object_or_404(Event, pk=event_id)
+    return redirect(event, permanent=True)
+
+
+def event_detail(request, slug):
+    """Страница /events/<slug>/; если мероприятия нет – ответ 404."""
+    event = get_object_or_404(Event.objects.with_seats(), slug=slug)
+    # Обратная связь related_name="plans": активные записи мероприятия.
+    plans = event.plans.active().select_related("user")
 
     return render(
         request,

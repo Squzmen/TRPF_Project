@@ -38,8 +38,9 @@
             <label for="status" class="form-label">Статус</label>
             <select id="status" name="status" class="form-select">
                 <option value="" {% if not status %}selected{% endif %}>Все записи</option>
-                <option value="active" {% if status == "active" %}selected{% endif %}>Активные</option>
-                <option value="cancelled" {% if status == "cancelled" %}selected{% endif %}>Отменённые</option>
+                {% for value, label in statuses %}
+                    <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
             </select>
         </div>
         <div class="col-md-2">

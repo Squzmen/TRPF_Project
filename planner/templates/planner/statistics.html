@@ -19,6 +19,24 @@
     </section>
 
     <section class="mb-4">
+        <h2 class="h4">Записи по статусам</h2>
+        <ul class="list-group">
+            <li class="list-group-item d-flex justify-content-between">
+                Всего записей <span class="badge bg-dark">{{ by_status.total }}</span>
+            </li>
+            <li class="list-group-item d-flex justify-content-between">
+                Активные <span class="badge bg-success">{{ by_status.active }}</span>
+            </li>
+            <li class="list-group-item d-flex justify-content-between">
+                Посещённые <span class="badge bg-info text-dark">{{ by_status.completed }}</span>
+            </li>
+            <li class="list-group-item d-flex justify-content-between">
+                Отменённые <span class="badge bg-secondary">{{ by_status.cancelled }}</span>
+            </li>
+        </ul>
+    </section>
+
+    <section class="mb-4">
         <h2 class="h4">Записи по мероприятиям</h2>
         <table class="table table-striped">
             <thead>

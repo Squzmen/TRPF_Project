@@ -25,7 +25,7 @@
         </p>
 
         <a
-            href="{% url 'catalog:detail' event.id %}"
+            href="{{ event.get_absolute_url }}"
             class="btn btn-primary"
         >
             Подробнее

@@ -48,9 +48,11 @@ def test_import_keeps_counts_ids_and_links(project_data):
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             "SELECT id, event_id, user_id, is_cancelled FROM plans").fetchall()
-    for plan_id, event_id, user_id, _cancelled in rows:
+    for plan_id, event_id, user_id, cancelled in rows:
         plan = Plan.objects.get(pk=plan_id)
         assert (plan.event_id, plan.user_id) == (event_id, user_id)
+        expected = Plan.Status.CANCELLED if cancelled else Plan.Status.ACTIVE
+        assert plan.status == expected
 
 
 def test_import_can_be_repeated(project_data):
@@ -101,8 +103,54 @@ def test_cancel_keeps_plan(project_data):
     plan = Plan.objects.get(pk=1)
     plan.cancel()
     plan.refresh_from_db()
-    assert plan.is_cancelled
+    assert plan.status == Plan.Status.CANCELLED
     assert Plan.objects.filter(pk=1).exists()
+
+
+def test_manager_methods(project_data):
+    """PlanQuerySet: active(), cancelled(), completed(), for_date()."""
+    assert Plan.objects.count() == 6
+    assert Plan.objects.active().count() == 5
+    assert list(Plan.objects.cancelled().values_list("pk", flat=True)) == [5]
+    assert not Plan.objects.completed().exists()
+    on_date = Plan.objects.for_date(date(2026, 10, 17))
+    assert set(on_date.values_list("pk", flat=True)) == {1, 2}
+    # Методы возвращают QuerySet, поэтому цепочку можно продолжать.
+    assert Plan.objects.active().filter(event_id=2).count() == 2
+    assert Event.objects.get(pk=1).plans.active().count() == 2
+
+
+def test_with_seats_annotation(project_data):
+    """EventQuerySet.with_seats(): свободные места по активным записям."""
+    seats = dict(Event.objects.with_seats().values_list("pk", "seats_left"))
+    assert seats == {1: 0, 2: 1, 3: 1, 4: 3, 5: 5}
+
+
+def test_slug_is_generated_and_unique():
+    """slug транслитерируется из названия и не повторяется."""
+    first = Event.objects.create(
+        name="Аудитория 301", category="лекция",
+        event_date=date(2099, 1, 1), ticket_price=0, capacity=5)
+    second = Event.objects.create(
+        name="Аудитория 301", category="лекция",
+        event_date=date(2099, 1, 2), ticket_price=0, capacity=5)
+    assert first.slug == "auditoriia-301"
+    assert second.slug == "auditoriia-301-2"
+    assert first.get_absolute_url() == "/events/auditoriia-301/"
+
+
+def test_generated_field_follows_age_limit():
+    """GeneratedField is_family вычисляется базой данных."""
+    event = Event.objects.create(
+        name="Кукольный театр", category="театр",
+        event_date=date(2099, 1, 1), age_limit=0, ticket_price=300,
+        capacity=10)
+    event.refresh_from_db()
+    assert event.is_family
+    event.age_limit = 16
+    event.save()
+    event.refresh_from_db()
+    assert not event.is_family
 
 
 def test_get_raises_for_missing_and_multiple(project_data):

@@ -22,7 +22,7 @@ from visitors.models import User
 
 pytestmark = pytest.mark.usefixtures("project_data")
 
-PAGES = ["/", "/events/", "/events/1/", "/events/search/",
+PAGES = ["/", "/events/", "/events/spektakl-gamlet/", "/events/search/",
          "/events/recommend/", "/plans/", "/plans/1/",
          "/plans/statistics/"]
 
@@ -58,7 +58,9 @@ def test_pages_extend_base_template(client, url):
     ("/events/", "event_list", {}),
     ("/events/search/", "event_search", {}),
     ("/events/recommend/", "event_recommend", {}),
-    ("/events/3/", "event_detail", {"event_id": 3}),
+    ("/events/3/", "event_redirect", {"event_id": 3}),
+    ("/events/dzhazovyi-vecher/", "event_detail",
+     {"slug": "dzhazovyi-vecher"}),
     ("/plans/", "plan_list", {}),
     ("/plans/statistics/", "statistics", {}),
     ("/plans/2/", "plan_detail", {"plan_id": 2}),
@@ -74,7 +76,8 @@ def test_named_urls_with_namespaces():
     """Именованные маршруты строятся через пространства имён."""
     assert reverse("homepage:index") == "/"
     assert reverse("catalog:list") == "/events/"
-    assert reverse("catalog:detail", args=[3]) == "/events/3/"
+    assert reverse("catalog:detail", kwargs={"slug": "abc"}) == "/events/abc/"
+    assert reverse("catalog:detail_by_id", args=[3]) == "/events/3/"
     assert reverse("catalog:search") == "/events/search/"
     assert reverse("catalog:recommend") == "/events/recommend/"
     assert reverse("planner:list") == "/plans/"
@@ -101,7 +104,7 @@ def test_events_page_lists_all_events_from_orm(client):
     assert f"Всего мероприятий: {events.count()}" in html
     for event in events:
         assert escape(event.name) in html
-        assert f'href="/events/{event.pk}/"' in html
+        assert f'href="{event.get_absolute_url()}"' in html
         assert event.event_date.strftime("%d.%m.%Y") in html
         assert f"{floatformat(event.ticket_price, 2)} руб." in html
 
@@ -224,7 +227,8 @@ def test_event_detail_shows_seats_and_reverse_relation(client):
     """Карточка: атрибуты Event, свободные места, записавшиеся посетители."""
     events, _users, plans = load_data()
     for event in events:
-        html = client.get(f"/events/{event.id}/").content.decode()
+        html = client.get(f"/events/{event.id}/",
+                          follow=True).content.decode()
         seats = remaining_seats(plans, event)
         assert escape(event.name) in html
         assert (f"свободно мест: {seats}" if seats else "мест нет") in html
@@ -247,7 +251,7 @@ def test_plans_page_shows_related_data_and_status(client):
 def test_plans_page_active_filter(client):
     """status=active убирает отменённые записи."""
     html = client.get("/plans/", {"status": "active"}).content.decode()
-    active = Plan.objects.filter(is_cancelled=False).count()
+    active = Plan.objects.active().count()
     assert f"Всего записей: {active}" in html
     assert "plan-status-cancelled" not in html
 
@@ -333,13 +337,52 @@ def test_statistics_keeps_objects_without_plans(client):
     assert any(row["active_plans"] == 0 for row in by_user)
 
 
+def test_old_id_url_redirects_to_slug(client):
+    """/events/<id>/ постоянно перенаправляет на адрес get_absolute_url()."""
+    response = client.get("/events/1/")
+    assert response.status_code == 301
+    assert response["Location"] == Event.objects.get(pk=1).get_absolute_url()
+
+
+def test_plans_filter_by_each_status(client):
+    """Параметр status принимает коды Plan.Status."""
+    for value in Plan.Status.values:
+        response = client.get("/plans/", {"status": value})
+        assert response.context["total"] == Plan.objects.filter(
+            status=value).count()
+
+
+def test_statistics_counts_statuses(client):
+    """aggregate() с Count(filter=Q(...)) по каждому статусу."""
+    Plan.objects.filter(pk=6).update(status=Plan.Status.COMPLETED)
+    by_status = client.get("/plans/statistics/").context["by_status"]
+    assert by_status == {"total": 6, "active": 4, "cancelled": 1,
+                         "completed": 1}
+
+
+def test_cancelled_plan_frees_seat(client):
+    """Отменённая запись не занимает место."""
+    assert Event.objects.with_seats().get(pk=1).seats_left == 0
+    Plan.objects.get(pk=2).cancel()
+    assert Event.objects.with_seats().get(pk=1).seats_left == 1
+
+
+def test_context_processor_data_on_every_page(client):
+    """Контекстный процессор передаёт название сайта и число мероприятий."""
+    for url in ("/", "/events/", "/plans/statistics/"):
+        response = client.get(url)
+        assert response.context["site_name"] == "Культурный досуг"
+        assert "мероприятий в каталоге: 5" in response.content.decode()
+
+
 def test_navigation_links_to_statistics(client):
     """Навигация ведёт во все основные разделы, включая статистику."""
     html = client.get("/").content.decode()
     assert 'href="/plans/statistics/"' in html
 
 
-@pytest.mark.parametrize("url", ["/events/999/", "/plans/999/"])
+@pytest.mark.parametrize("url", ["/events/999/", "/events/no-such-event/",
+                                 "/plans/999/"])
 def test_missing_object_returns_404(client, url):
     """get_object_or_404(): отсутствующий объект – собственная страница 404."""
     with override_settings(DEBUG=False):

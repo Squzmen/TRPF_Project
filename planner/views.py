@@ -2,6 +2,7 @@
 
 ПР9: список записей, карточка и статистика получают данные через
 Django ORM; в списке добавлены фильтрация, сортировка и пагинация.
+ПР10: статусы Plan.Status и методы менеджера Plan.objects.
 """
 
 from datetime import date
@@ -34,11 +35,8 @@ PLAN_SORT_FIELDS = {
     "user": "user__name",
 }
 
-# Значение параметра status → значение поля is_cancelled.
-STATUS_FILTERS = {
-    "active": False,
-    "cancelled": True,
-}
+# Разрешённые значения параметра status – коды Plan.Status.
+STATUS_FILTERS = Plan.Status.values
 
 
 def plan_list(request):
@@ -52,7 +50,7 @@ def plan_list(request):
 
     plans = Plan.objects.all()
     if status in STATUS_FILTERS:
-        plans = plans.filter(is_cancelled=STATUS_FILTERS[status])
+        plans = plans.filter(status=status)
     else:
         status = ""
     if raw_date:
@@ -61,8 +59,8 @@ def plan_list(request):
         except ValueError:
             error = "Укажите дату в формате ГГГГ-ММ-ДД."
         else:
-            # Фильтрация по полю связанной модели Event.
-            plans = plans.filter(event__event_date=selected_date)
+            # Фильтрация по полю связанной модели Event (метод менеджера).
+            plans = plans.for_date(selected_date)
     if raw_event.isdigit():
         plans = plans.filter(event_id=int(raw_event))
     if raw_user.isdigit():
@@ -81,7 +79,7 @@ def plan_list(request):
         .order_by(PLAN_SORT_FIELDS[sort], "id")
         .values(
             "id",
-            "is_cancelled",
+            "status",
             "event_id",
             "event_name",
             "event_date",
@@ -101,8 +99,9 @@ def plan_list(request):
             "plans": page_obj,
             "page_obj": page_obj,
             "total": paginator.count,
-            "only_active": status == "active",
+            "only_active": status == Plan.Status.ACTIVE,
             "status": status,
+            "statuses": Plan.Status.choices,
             "sort": sort,
             "date": raw_date,
             "selected_event": raw_event,
@@ -116,9 +115,17 @@ def plan_list(request):
 
 def statistics(request):
     """Страница /plans/statistics/: aggregate() и annotate()."""
-    active = Q(plans__is_cancelled=False)
+    active = Q(plans__status=Plan.Status.ACTIVE)
 
-    totals = Plan.objects.filter(is_cancelled=False).aggregate(
+    # Количество записей по статусам: Count() с условием Q().
+    by_status = Plan.objects.aggregate(
+        total=Count("id"),
+        active=Count("id", filter=Q(status=Plan.Status.ACTIVE)),
+        cancelled=Count("id", filter=Q(status=Plan.Status.CANCELLED)),
+        completed=Count("id", filter=Q(status=Plan.Status.COMPLETED)),
+    )
+
+    totals = Plan.objects.active().aggregate(
         active_plans=Count("id"),
         total_price=Sum("event__ticket_price", default=0),
         avg_price=Avg("event__ticket_price", default=0),
@@ -195,6 +202,7 @@ def statistics(request):
         "planner/statistics.html",
         {
             "totals": totals,
+            "by_status": by_status,
             "by_event": by_event,
             "by_category": by_category,
             "popular": popular,
@@ -207,7 +215,7 @@ def statistics(request):
 def plan_detail(request, plan_id):
     """Страница /plans/<id>/; если записи нет – ответ 404."""
     plan = get_object_or_404(
-        Plan.objects.select_related("event", "user"),
+        Plan.objects.with_details(),
         pk=plan_id,
     )
     return render(

@@ -13,7 +13,7 @@
 
             <p class="card-text">
                 <strong>Мероприятие:</strong>
-                <a href="{% url 'catalog:detail' plan.event.id %}">
+                <a href="{{ plan.event.get_absolute_url }}">
                     {{ plan.event.name }}
                 </a>
             </p>

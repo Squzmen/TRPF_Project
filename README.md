@@ -1,11 +1,13 @@
 # Система планирования культурного досуга
 
-Проект ПР1 → ПР2 → ПР3 → ПР5 → ПР6 → ПР7 → ПР9: подбор культурных
+Проект ПР1 → ПР2 → ПР3 → ПР5 → ПР6 → ПР7 → ПР9 → ПР10: подбор культурных
 мероприятий и сохранение записей посетителей. Консольное приложение (ПР3)
 дополнено веб-интерфейсом на Django (ПР5), страницы которого в ПР6 переведены
 на шаблоны Django, в ПР7 получили базу SQLite и SQL-запросы, а в ПР9 слой
 доступа к данным переведён на Django ORM: модели, связи, миграции и
-ORM-запросы. Исходные проверки возраста, категории, бюджета, даты и свободных
+ORM-запросы; в ПР10 настроены административная панель Django, статусы
+записей, менеджеры запросов, адреса по slug и Django Debug Toolbar.
+Исходные проверки возраста, категории, бюджета, даты и свободных
 мест сохранены и по-прежнему работают в консольной версии.
 
 ## Назначение
@@ -72,7 +74,9 @@ Django-проект называется `leisure`, веб-часть разде
 | `/events/` (`?q=&category=&sort=`) | `catalog:list` | `catalog.views.event_list` | ORM |
 | `/events/search/` | `catalog:search` | `catalog.views.event_search` | ORM |
 | `/events/recommend/` | `catalog:recommend` | `catalog.views.event_recommend` | ORM |
-| `/events/<int:event_id>/` | `catalog:detail` | `catalog.views.event_detail` | ORM |
+| `/events/<int:event_id>/` | `catalog:detail_by_id` | `catalog.views.event_redirect` | 301 на адрес по slug |
+| `/events/<slug:slug>/` | `catalog:detail` | `catalog.views.event_detail` | ORM |
+| `/admin/` | — | Django Admin | ORM |
 | `/plans/` (`?date=&event=&user=&status=&sort=&page=`) | `planner:list` | `planner.views.plan_list` | ORM |
 | `/plans/statistics/` | `planner:statistics` | `planner.views.statistics` | ORM |
 | `/plans/<int:plan_id>/` | `planner:detail` | `planner.views.plan_detail` | ORM |
@@ -104,9 +108,9 @@ Django-проект называется `leisure`, веб-часть разде
 
 | Модель | Приложение | Поля | Связи |
 | --- | --- | --- | --- |
-| `Event` — мероприятие | `catalog` | `name`, `category`, `event_date` (DateField), `age_limit`, `ticket_price` (DecimalField, ≥ 0), `capacity` | обратная связь `event.plans` |
+| `Event` — мероприятие | `catalog` | `name`, `slug`, `category`, `event_date` (DateField), `age_limit`, `is_family` (GeneratedField), `ticket_price` (DecimalField, ≥ 0), `capacity` | обратная связь `event.plans` |
 | `User` — посетитель | `visitors` | `name`, `age`, `preferred_category`, `budget` | обратная связь `user.plans` |
-| `Plan` — запись | `planner` | `event`, `user`, `is_cancelled`, `comment`, `created_at` | `ForeignKey` на `Event` и `User` |
+| `Plan` — запись | `planner` | `event`, `user`, `status` (TextChoices), `comment`, `created_at` | `ForeignKey` на `Event` и `User` |
 
 * первичные ключи `id` (BigAutoField) создаёт Django;
 * `Plan.event` и `Plan.user` — `ForeignKey(on_delete=models.PROTECT,
@@ -116,14 +120,72 @@ Django-проект называется `leisure`, веб-часть разде
 * `Meta`: сортировка по умолчанию, `verbose_name`, ограничение
   `CheckConstraint` на неотрицательную цену билета;
 * методы моделей: `Event.is_age_allowed()`, `Event.is_budget_enough()`,
-  `User.is_interested_in()`, `Plan.cancel()`; категории при сохранении
-  приводятся к строчным буквам.
+  `User.is_interested_in()`, `Plan.cancel()`, `Plan.complete()`,
+  `Event.get_absolute_url()`; категории при сохранении приводятся к
+  строчным буквам.
+
+### Статусы, менеджеры, slug и вычисляемое поле (ПР10)
+
+* `Plan.Status` (TextChoices): `ACTIVE` — «Активна», `CANCELLED` —
+  «Отменена», `COMPLETED` — «Посещена». Место на мероприятии занимает
+  только активная запись; отмена и посещение не удаляют запись из истории.
+  Переход с `is_cancelled`: миграции `planner/0002_plan_status` (новое поле),
+  `0003_migrate_plan_statuses` (RunPython: `True → cancelled`,
+  `False → active`, есть обратная функция) и `0004_remove_plan_is_cancelled`.
+* `PlanQuerySet` / `PlanManager`: `Plan.objects.active()`, `cancelled()`,
+  `completed()`, `for_date(date)`, `with_details()`
+  (`select_related("event", "user")`); методы работают и через обратную
+  связь: `event.plans.active()`.
+* `EventQuerySet` / `EventManager`: `Event.objects.with_seats()` (активные
+  записи и свободные места через `annotate()`), `upcoming(today)`.
+* `Event.slug` — транслитерация названия библиотекой Unidecode и
+  `slugify()`, уникальность (`-2`, `-3`); миграции `catalog/0002` (поле),
+  `0003_fill_event_slugs` (заполнение существующих записей),
+  `0004_event_slug_unique`. Карточка открывается по `/events/<slug>/`,
+  ссылки строятся через `get_absolute_url()` (`reverse("catalog:detail")`).
+* `Event.is_family` — `GeneratedField` (`Case/When`, `db_persist=True`):
+  база данных сама вычисляет признак «возрастное ограничение не выше 6+».
+* `Event.capacity` получил `help_text` (подсказка в формах и админке).
+* Контекстный процессор `catalog.context_processors.leisure_context`
+  передаёт во все шаблоны `site_name`, `events_count` и `plan_status`
+  (константы `Plan.Status` для сравнения в шаблонах).
+
+## Административная панель (ПР10)
+
+Адрес `/admin/`. Учётная запись администратора создаётся командой
+`python manage.py createsuperuser` (в репозиторий не входит).
+
+| Модель | Настройки `ModelAdmin` |
+| --- | --- |
+| `Event` | `list_display` (в т. ч. вычисляемый столбец «Активных записей» через `annotate()` в `get_queryset()`), `list_editable` (цена, вместимость), `list_filter`, `search_fields`, `date_hierarchy`, `readonly_fields` (slug, is_family), `fieldsets`, inline записей |
+| `User` | столбцы, фильтр по категории, поиск, число записей, inline записей |
+| `Plan` | `list_display`, `list_editable` (статус), `list_filter` (статус, категория мероприятия), поиск по `event__name` и `user__name`, `list_select_related`, `autocomplete_fields`, `date_hierarchy`, действия «Отменить», «Вернуть в активные», «Отметить как посещённые» |
+
+Названия приложений задаются `verbose_name` в `apps.py`, моделей и полей —
+`verbose_name` в моделях, заголовки панели — `admin.site.site_header`.
+Административная панель не заменяет правила предметной области: проверка
+свободных мест при создании записи появится в формах (ПР11).
+
+## Django Debug Toolbar (ПР10)
+
+Подключается в `settings.py` только при `DEBUG = True` и установленном
+пакете (`INSTALLED_APPS`, `DebugToolbarMiddleware`, `INTERNAL_IPS`), маршруты —
+`debug_toolbar_urls()` в `leisure/urls.py`. Результаты анализа вкладки SQL:
+
+| Страница | Запросов | Комментарий |
+| --- | --- | --- |
+| `/plans/` (с фильтрами и страницей) | 5 | `COUNT(*)` для пагинатора, страница записей одним `JOIN` (`annotate(F())` + `values()`), справочники мероприятий и посетителей, число мероприятий (контекстный процессор) |
+| `/plans/<id>/` | 2 | запись с мероприятием и посетителем одним запросом (`select_related`) |
+| `/events/<slug>/` | 3 | мероприятие с `COUNT` записей, записи с посетителями, контекстный процессор |
+| `/plans/statistics/` | 7 | по одному запросу на каждый блок статистики |
+
+Повторных запросов к связанным объектам (N+1) нет, поэтому
+`prefetch_related()` не требуется.
 
 ### Миграции
 
-Файлы `catalog/migrations/0001_initial.py`,
-`visitors/migrations/0001_initial.py`, `planner/migrations/0001_initial.py`
-хранятся в репозитории. Порядок работы:
+Файлы миграций (`catalog/migrations/0001…0004`, `visitors/migrations/0001`,
+`planner/migrations/0001…0004`) хранятся в репозитории. Порядок работы:
 
 ```powershell
 python manage.py makemigrations        # создать миграции по изменениям моделей
@@ -147,7 +209,7 @@ python -m db.import_sqlite_to_orm   # перенос с сохранением i
 Скрипт `db/import_sqlite_to_orm.py` переносит сначала мероприятия и
 посетителей, затем записи (`update_or_create(pk=...)` в
 `transaction.atomic()`), преобразует даты в `date`, цены в `Decimal`,
-`is_cancelled` в `bool`. Повторный запуск не создаёт дублей. Ожидаемый
+`is_cancelled` в статус `cancelled`/`active`. Повторный запуск не создаёт дублей. Ожидаемый
 результат: 5 мероприятий, 7 посетителей, 6 записей.
 
 ### ORM-запросы проекта
@@ -198,7 +260,7 @@ TRPF_Project/
 ├── leisure/             # настройки проекта (settings.py, urls.py, wsgi.py, asgi.py)
 ├── templates/           # base.html, includes/navigation.html, includes/pagination.html
 ├── homepage/            # приложение: главная, 404, статические файлы
-├── catalog/             # приложение: модель Event, представления, шаблоны мероприятий
+├── catalog/             # модель Event, admin.py, context_processors.py, представления, шаблоны
 │   └── migrations/
 ├── visitors/            # приложение: модель User (посетитель)
 │   └── migrations/
@@ -214,7 +276,7 @@ TRPF_Project/
 ├── utils.py             # безопасный ввод
 ├── data/                # events.json, users.json, plans.json, culture.sqlite (ПР7)
 ├── tests/               # проверки pytest (консоль, SQL-слой, модели, веб)
-└── requirements.txt     # Django, pytest, pytest-django, flake8
+└── requirements.txt     # Django, Unidecode, django-debug-toolbar, pytest, pytest-django, flake8
 ```
 
 В репозитории лежат демонстрационные данные: пять мероприятий, семь
@@ -232,6 +294,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 python manage.py migrate
 python -m db.import_sqlite_to_orm
+python manage.py createsuperuser   # для входа в /admin/
 python manage.py check
 python manage.py runserver
 ```
@@ -260,8 +323,18 @@ flake8 . --extend-exclude=venv
   сохранением параметров;
 * консольная версия по-прежнему работает с JSON.
 
-Отложено до следующих работ: административная панель, формы, создание и
-отмена записей через веб.
+На ПР10:
+
+* настроена административная панель для `Event`, `User`, `Plan`
+  (столбцы, поиск, фильтры, сортировка, inline, действия, автодополнение);
+* `is_cancelled` заменён статусом `Plan.Status` с переносом данных миграцией;
+* созданы менеджеры `PlanQuerySet` и `EventQuerySet`, представления
+  используют `Plan.objects.active()`, `for_date()`, `with_details()`;
+* добавлены `GeneratedField`, адреса по slug и `get_absolute_url()`,
+  контекстный процессор, Django Debug Toolbar.
+
+Отложено до следующих работ: формы, создание, редактирование и отмена
+записей через веб.
 
 ## Автор
 
