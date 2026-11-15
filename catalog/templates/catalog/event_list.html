@@ -9,21 +9,42 @@
 
     <form method="get" class="row g-2 align-items-end mb-3">
         <div class="col-auto">
+            <label for="q" class="form-label">Поиск</label>
+            <input
+                type="search"
+                id="q"
+                name="q"
+                value="{{ query }}"
+                placeholder="Название или категория"
+                class="form-control"
+            >
+        </div>
+        <div class="col-auto">
             <label for="category" class="form-label">Категория</label>
             <select id="category" name="category" class="form-select">
                 <option value="">Все категории</option>
                 {% for item in categories %}
                     <option
-                        value="{{ item.category }}"
-                        {% if item.category == category %}selected{% endif %}
+                        value="{{ item }}"
+                        {% if item == category %}selected{% endif %}
                     >
-                        {{ item.category }}
+                        {{ item }}
                     </option>
                 {% endfor %}
             </select>
         </div>
         <div class="col-auto">
+            <label for="sort" class="form-label">Сортировка</label>
+            <select id="sort" name="sort" class="form-select">
+                <option value="date" {% if sort == "date" %}selected{% endif %}>По дате</option>
+                <option value="price" {% if sort == "price" %}selected{% endif %}>Сначала дешёвые</option>
+                <option value="-price" {% if sort == "-price" %}selected{% endif %}>Сначала дорогие</option>
+                <option value="name" {% if sort == "name" %}selected{% endif %}>По названию</option>
+            </select>
+        </div>
+        <div class="col-auto">
             <button type="submit" class="btn btn-primary">Показать</button>
+            <a href="{% url 'catalog:list' %}" class="btn btn-outline-secondary">Сбросить</a>
         </div>
     </form>
 

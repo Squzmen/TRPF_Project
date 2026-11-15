@@ -1,9 +1,14 @@
-"""Тестовые объекты предметной области и настройка Django для тестов."""
+"""Тестовые объекты предметной области и данные для тестов Django.
 
-import os
+Настройки Django подключает pytest-django (параметр
+DJANGO_SETTINGS_MODULE в pytest.ini); тесты с базой данных работают с
+отдельной тестовой базой, а не с db.sqlite3.
+"""
+
 from datetime import date
 
 import pytest
+from django.test import Client
 
 from models import Event, User
 
@@ -21,10 +26,15 @@ def user():
     return User(1, "Анна", 20, "театр", 2000)
 
 
-def pytest_configure(config):
-    """Подготовить Django до сбора тестов веб-слоя (ПР5)."""
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "leisure.settings")
-    import django
-    from django.test.utils import setup_test_environment
-    django.setup()
-    setup_test_environment()
+@pytest.fixture
+def project_data(db):
+    """Тестовая база, заполненная из data/culture.sqlite скриптом ПР9."""
+    from db.import_sqlite_to_orm import import_data
+
+    return import_data()
+
+
+@pytest.fixture
+def client():
+    """Тестовый клиент, обращающийся к разрешённому хосту localhost."""
+    return Client(SERVER_NAME="localhost")

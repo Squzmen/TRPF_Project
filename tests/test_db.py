@@ -1,14 +1,11 @@
 """Проверки слоя SQLite: схема, импорт из JSON и файл запросов (ПР7)."""
 
-import inspect
 import json
 import re
 import sqlite3
 
 import pytest
 
-import catalog.views
-import planner.views
 from db import import_json
 from db.database import (
     BASE_DIR, DB_PATH, get_connection, rows_with_dates,
@@ -160,16 +157,6 @@ def test_every_saved_query_runs(database):
             assert conn.execute(query).fetchall() is not None, query
     finally:
         conn.close()
-
-
-@pytest.mark.parametrize("module", [catalog.views, planner.views])
-def test_views_use_parameters_not_string_formatting(module):
-    """В представлениях значения передаются через ?, а не через f-строки."""
-    source = inspect.getsource(module)
-    assert "row_factory = sqlite3.Row" in source
-    assert not re.search(r'f"""\s*SELECT', source)
-    assert not re.search(r"execute\(\s*f", source)
-    assert "%s" not in source
 
 
 def test_rows_with_dates_converts_iso_strings(database):

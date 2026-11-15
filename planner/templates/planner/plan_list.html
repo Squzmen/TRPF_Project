@@ -7,22 +7,72 @@
 {% block content %}
     <h1>Планы посетителей</h1>
 
+    <form method="get" class="row g-2 align-items-end mb-3">
+        <div class="col-md-2">
+            <label for="date" class="form-label">Дата</label>
+            <input type="date" id="date" name="date" value="{{ date }}" class="form-control">
+        </div>
+        <div class="col-md-3">
+            <label for="event" class="form-label">Мероприятие</label>
+            <select id="event" name="event" class="form-select">
+                <option value="">Все мероприятия</option>
+                {% for item in events %}
+                    <option value="{{ item.pk }}" {% if selected_event == item.pk|stringformat:"s" %}selected{% endif %}>
+                        {{ item.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label for="user" class="form-label">Посетитель</label>
+            <select id="user" name="user" class="form-select">
+                <option value="">Все посетители</option>
+                {% for item in users %}
+                    <option value="{{ item.pk }}" {% if selected_user == item.pk|stringformat:"s" %}selected{% endif %}>
+                        {{ item.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label for="status" class="form-label">Статус</label>
+            <select id="status" name="status" class="form-select">
+                <option value="" {% if not status %}selected{% endif %}>Все записи</option>
+                <option value="active" {% if status == "active" %}selected{% endif %}>Активные</option>
+                <option value="cancelled" {% if status == "cancelled" %}selected{% endif %}>Отменённые</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label for="sort" class="form-label">Сортировка</label>
+            <select id="sort" name="sort" class="form-select">
+                <option value="date" {% if sort == "date" %}selected{% endif %}>По дате</option>
+                <option value="event" {% if sort == "event" %}selected{% endif %}>По мероприятию</option>
+                <option value="user" {% if sort == "user" %}selected{% endif %}>По посетителю</option>
+            </select>
+        </div>
+        <div class="col-md-12">
+            <button type="submit" class="btn btn-primary">Найти</button>
+            <a href="{% url 'planner:list' %}" class="btn btn-outline-secondary">Сбросить</a>
+        </div>
+    </form>
+
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
     <p>
         {% if only_active %}
             Показаны только активные записи.
             <a href="{% url 'planner:list' %}">Показать все</a>
         {% else %}
-            Показаны все записи, включая отменённые.
-            <a href="{% url 'planner:list' %}?status=active">
-                Только активные
-            </a>
+            <a href="{% url 'planner:list' %}?status=active">Только активные</a>
         {% endif %}
         ·
         <a href="{% url 'planner:statistics' %}">Статистика</a>
     </p>
 
     <p>
-        Всего записей: {{ plans|length }}
+        Всего записей: {{ total }}
     </p>
 
     <ul class="list-group">
@@ -38,4 +88,6 @@
             <li class="list-group-item">Записи не найдены.</li>
         {% endfor %}
     </ul>
+
+    {% include "includes/pagination.html" %}
 {% endblock %}

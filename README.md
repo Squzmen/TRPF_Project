@@ -1,10 +1,11 @@
 # Система планирования культурного досуга
 
-Проект ПР1 → ПР2 → ПР3 → ПР5 → ПР6 → ПР7: подбор культурных мероприятий и
-сохранение записей посетителей. Консольное приложение (ПР3) дополнено
-веб-интерфейсом на Django (ПР5), страницы которого в ПР6 переведены на
-шаблоны Django, а в ПР7 получили слой реляционного хранения данных —
-базу SQLite и SQL-запросы. Исходные проверки возраста, категории, бюджета, даты и свободных
+Проект ПР1 → ПР2 → ПР3 → ПР5 → ПР6 → ПР7 → ПР9: подбор культурных
+мероприятий и сохранение записей посетителей. Консольное приложение (ПР3)
+дополнено веб-интерфейсом на Django (ПР5), страницы которого в ПР6 переведены
+на шаблоны Django, в ПР7 получили базу SQLite и SQL-запросы, а в ПР9 слой
+доступа к данным переведён на Django ORM: модели, связи, миграции и
+ORM-запросы. Исходные проверки возраста, категории, бюджета, даты и свободных
 мест сохранены и по-прежнему работают в консольной версии.
 
 ## Назначение
@@ -17,24 +18,25 @@
 мероприятия для посетителя; добавление и отмена записи; история записей,
 посетители и статистика; добавление посетителя и нового мероприятия.
 
-**Веб-интерфейс** (ПР5–ПР7): просмотр списка мероприятий с фильтром по
-категории, карточки мероприятия с числом свободных мест, поиск мероприятий по
-датам и цене, подбор мероприятий для посетителя, список записей и карточка
-записи, страница статистики. Изменение данных
-через веб-формы будет реализовано после изучения форм Django.
+**Веб-интерфейс** (ПР5–ПР9): список мероприятий с поиском, фильтром по
+категории и сортировкой; карточка мероприятия с числом свободных мест и
+записавшимися посетителями; поиск по датам и цене; подбор мероприятий для
+посетителя; список записей с фильтрацией по дате, мероприятию, посетителю и
+статусу, сортировкой и постраничным выводом; карточка записи; статистика.
+Изменение данных через веб-формы будет реализовано после изучения форм Django.
 
 ## Используемые технологии
 
 * Python 3.10+;
-* Django 5.2 — веб-фреймворк;
+* Django 5.2 — веб-фреймворк, Django ORM — доступ к данным;
 * Django Template Language — шаблоны страниц;
 * HTML5, CSS3, JavaScript — разметка, собственные стили и скрипт;
 * Bootstrap 5.3 — базовое оформление;
+* SQLite — база данных (`db.sqlite3` для Django, `data/culture.sqlite` — исходная база ПР7);
 * JSON — исходные данные и хранилище консольной версии;
-* SQLite и модуль `sqlite3` — база данных веб-интерфейса, язык SQL;
-* pytest — автоматизированные тесты; flake8 — проверка качества кода.
+* pytest, pytest-django — автоматизированные тесты; flake8 — проверка качества кода.
 
-## Объектная модель
+## Объектная модель консольной версии
 
 | Класс | Данные | Основное поведение |
 | --- | --- | --- |
@@ -42,162 +44,151 @@
 | `User` | `id`, `name`, `age`, `preferred_category`, `budget` | проверка интереса, `from_data`, `__str__` |
 | `Plan` | `id`, ссылки на `Event` и `User`, `is_cancelled` | `cancel`, сериализация, `__str__` |
 
-`Plan` хранит ссылки на два существующих объекта. `cancel()` меняет состояние,
-не удаляя объект из коллекции. Условия ПР1 вычисляются по свойствам объектов;
-поиск и сортировка коллекций остаются обычными функциями (`events.py`), работа
-с файлами — в `storage.py`.
+Классы пакета `models/` используются только консольной версией; веб-часть
+работает с моделями Django (раздел «Модели Django ORM»).
 
 ## Веб-интерфейс
 
-Django-проект называется `leisure`, веб-часть разделена на три приложения:
+Django-проект называется `leisure`, веб-часть разделена на приложения по
+сущностям предметной области:
 
-| Приложение | Назначение |
-| --- | --- |
-| `homepage` | главная страница, страница ошибки 404, общие статические файлы |
-| `catalog` | каталог мероприятий (сущность `Event`) |
-| `planner` | планы посетителей (сущность `Plan`) |
+| Приложение | Назначение | Модель |
+| --- | --- | --- |
+| `homepage` | главная страница, страница ошибки 404, общие статические файлы | — |
+| `catalog` | каталог мероприятий | `Event` |
+| `visitors` | посетители (ПР9) | `User` |
+| `planner` | записи посетителей на мероприятия | `Plan` |
 
 Приложения названы `catalog` и `planner`, а не `events` и `plans`: пакеты с
 такими именами скрыли бы модули `events.py` и `plans.py` консольной версии.
-Для пользователей отдельное приложение не создаётся: посетители нужны только
-как часть записи, а аутентификация будет рассмотрена позднее.
+Модель `visitors.User` — посетитель предметной области, а не встроенный
+пользователь `django.contrib.auth`.
 
 ### Страницы и маршруты
 
-| URL | Имя маршрута | View-функция | Источник данных |
+| URL | Имя маршрута | View-функция | Данные |
 | --- | --- | --- | --- |
 | `/` | `homepage:index` | `homepage.views.index` | — |
-| `/events/` (`?category=`) | `catalog:list` | `catalog.views.event_list` | SQLite (запросы 1, 2, 4) |
-| `/events/search/` | `catalog:search` | `catalog.views.event_search` | SQLite (запрос 5) |
-| `/events/recommend/` | `catalog:recommend` | `catalog.views.event_recommend` | SQLite (запросы 3, 6) |
-| `/events/<int:event_id>/` | `catalog:detail` | `catalog.views.event_detail` | объекты ПР3 (JSON) |
-| `/plans/` (`?status=active`) | `planner:list` | `planner.views.plan_list` | SQLite (запросы 7, 8) |
-| `/plans/statistics/` | `planner:statistics` | `planner.views.statistics` | SQLite (запросы 9–13) |
-| `/plans/<int:plan_id>/` | `planner:detail` | `planner.views.plan_detail` | объекты ПР3 (JSON) |
+| `/events/` (`?q=&category=&sort=`) | `catalog:list` | `catalog.views.event_list` | ORM |
+| `/events/search/` | `catalog:search` | `catalog.views.event_search` | ORM |
+| `/events/recommend/` | `catalog:recommend` | `catalog.views.event_recommend` | ORM |
+| `/events/<int:event_id>/` | `catalog:detail` | `catalog.views.event_detail` | ORM |
+| `/plans/` (`?date=&event=&user=&status=&sort=&page=`) | `planner:list` | `planner.views.plan_list` | ORM |
+| `/plans/statistics/` | `planner:statistics` | `planner.views.statistics` | ORM |
+| `/plans/<int:plan_id>/` | `planner:detail` | `planner.views.plan_detail` | ORM |
 
 Пространства имён задаются переменной `app_name` в `urls.py` приложений.
-Если мероприятие или запись не найдены, шаблон выводит сообщение, а view
-возвращает статус 404 (`status=404 if event is None else 200`). Любой другой
-адрес обрабатывает `handler404` (`homepage.views.page_not_found`, шаблон
+Карточки мероприятия и записи получают объект через `get_object_or_404()`:
+при отсутствии объекта возвращается ответ 404. Любой неизвестный адрес
+обрабатывает `handler404` (`homepage.views.page_not_found`, шаблон
 `homepage/404.html`); собственная страница видна при `DEBUG = False`.
 
 ### Шаблоны Django
 
-View-функции загружают данные (из SQLite или средствами ПР3), готовят контекст
-и вызывают `render()`; HTML формируют шаблоны. Функция `page()` из ПР5 удалена.
-
 * `templates/base.html` — базовый шаблон: кодировка, Bootstrap, собственный
   CSS, логотип, навигация, подвал, JavaScript; блоки `title` и `content`;
-* `templates/includes/navigation.html` — навигация (Главная, Мероприятия,
-  Планы, Статистика) со ссылками `{% url %}`;
-* дочерние шаблоны наследуют базовый через `{% extends "base.html" %}` и
-  переопределяют блоки;
-* включаемые шаблоны: `catalog/includes/event_card.html` (карточка одного
-  мероприятия, используется в списке, поиске и подборе; данные передаются
-  через `{% include ... with ... %}`) и
-  `planner/includes/plan_status.html` (статус записи в списке и на карточке);
-* данные передаются через контекст; используются `{% for ... empty %}` и
-  `{% if %}`;
-* фильтры шаблонов: `length` (число мероприятий и записей), `default`
-  (название мероприятия), `date` (дата), `floatformat` (цена билета);
-* ссылки формируются только через `{% url 'catalog:detail' event.id %}` и
-  другие именованные маршруты.
+* `templates/includes/navigation.html` — навигация со ссылками `{% url %}`;
+* `templates/includes/pagination.html` — навигация по страницам: `page_obj`,
+  `has_previous`, `has_next`, ссылки `{% querystring page=... %}`
+  сохраняют параметры фильтрации и сортировки;
+* `catalog/includes/event_card.html` — карточка мероприятия;
+  `planner/includes/plan_status.html` — статус записи;
+* фильтры шаблонов: `length`, `default`, `date`, `floatformat`, `linebreaksbr`.
 
 ### Статические файлы
 
-Каталог `homepage/static/homepage/`: `css/style.css` (карточки, статусы,
-навигация, логотип), `js/main.js` (текущий год в подвале и подсветка пункта
-меню) и `img/logo.png` (логотип). Подключаются тегами `{% load static %}` и
-`{% static %}` в `base.html`; проверка: `python manage.py findstatic
-homepage/img/logo.png`.
+Каталог `homepage/static/homepage/`: `css/style.css`, `js/main.js` и
+`img/logo.png`. Подключаются тегами `{% load static %}` и `{% static %}`.
 
-## База данных SQLite (ПР7)
+## Модели Django ORM (ПР9)
 
-Данные списков, поиска и статистики хранятся в файле `data/culture.sqlite` и
-читаются средствами стандартной библиотеки `sqlite3`; Django ORM пока не
-используется. JSON-файлы остаются исходными данными консольной версии:
-база заполняется из них однократным переносом.
-
-### Структура базы данных
-
-**`events`** — мероприятия
-
-| Поле | Тип | Назначение |
-| --- | --- | --- |
-| `id` | INTEGER, PRIMARY KEY | идентификатор |
-| `name` | TEXT, NOT NULL | название |
-| `category` | TEXT, NOT NULL | категория (строчными буквами) |
-| `event_date` | TEXT, NOT NULL | дата в формате `ГГГГ-ММ-ДД` |
-| `age_limit` | INTEGER, NOT NULL | минимальный возраст (≥ 0) |
-| `ticket_price` | REAL, NOT NULL | цена билета (≥ 0) |
-| `capacity` | INTEGER, NOT NULL | вместимость (≥ 0) |
-
-**`users`** — посетители
-
-| Поле | Тип | Назначение |
-| --- | --- | --- |
-| `id` | INTEGER, PRIMARY KEY | идентификатор |
-| `name` | TEXT, NOT NULL | имя |
-| `age` | INTEGER, NOT NULL | возраст (≥ 0) |
-| `preferred_category` | TEXT, NOT NULL | любимая категория |
-| `budget` | REAL, NOT NULL | бюджет (≥ 0) |
-
-**`plans`** — записи посетителей на мероприятия
-
-| Поле | Тип | Назначение |
-| --- | --- | --- |
-| `id` | INTEGER, PRIMARY KEY | идентификатор |
-| `event_id` | INTEGER, NOT NULL, FOREIGN KEY → `events(id)` | мероприятие |
-| `user_id` | INTEGER, NOT NULL, FOREIGN KEY → `users(id)` | посетитель |
-| `is_cancelled` | INTEGER, NOT NULL, по умолчанию 0 | 0 — запись активна, 1 — отменена |
-
-Одно мероприятие может иметь много записей, один посетитель — много записей;
-каждая запись относится к одному мероприятию и одному посетителю. Первичный
-ключ каждой таблицы — `id`; внешние ключи есть в `plans`. Ограничения
-`NOT NULL`, `DEFAULT` и `CHECK` описаны в `sql/schema.sql`. Даты хранятся
-текстом `ГГГГ-ММ-ДД` — такой формат допускает сравнение и сортировку в SQL.
-
-### Файлы слоя данных
-
-* `sql/schema.sql` — команды создания таблиц и индексов;
-* `sql/queries.sql` — 13 проверенных SQL-запросов с комментариями;
-* `db/database.py` — `get_connection()` (соединение с `PRAGMA foreign_keys =
-  ON`), `create_schema()`, `rows_with_dates()`;
-* `db/import_json.py` — перенос данных из JSON (`executemany()`, параметры `?`,
-  `commit()`/`rollback()`);
-* `data/culture.sqlite` — файл базы данных.
-
-Обновить базу после изменения JSON (например, после работы в консольной
-версии) можно командой `python -m db.import_json`: таблицы очищаются и
-заполняются заново.
-
-### SQL-запросы
-
-| № | Задача | Элементы SQL | Страница |
+| Модель | Приложение | Поля | Связи |
 | --- | --- | --- | --- |
-| 1 | список мероприятий со свободными местами | SELECT, подзапрос, ORDER BY | `/events/` |
-| 2 | категории мероприятий | SELECT DISTINCT | `/events/` |
-| 3 | список посетителей | SELECT, ORDER BY | `/events/recommend/` |
-| 4 | мероприятия выбранной категории | WHERE | `/events/?category=` |
-| 5 | поиск по периоду и цене | WHERE, BETWEEN | `/events/search/` |
-| 6 | подбор мероприятий для посетителя | JOIN, WHERE, NOT IN | `/events/recommend/` |
-| 7 | все записи с мероприятием и посетителем | JOIN трёх таблиц | `/plans/` |
-| 8 | только активные записи | JOIN, WHERE | `/plans/?status=active` |
-| 9 | общие показатели активных записей | COUNT, SUM, AVG, MIN, MAX | `/plans/statistics/` |
-| 10 | записи по мероприятиям | LEFT JOIN, GROUP BY, COUNT | `/plans/statistics/` |
-| 11 | сводка по категориям | GROUP BY, MIN, AVG, MAX, SUM | `/plans/statistics/` |
-| 12 | мероприятия с не менее чем двумя записями | GROUP BY, HAVING | `/plans/statistics/` |
-| 13 | активность посетителей | два LEFT JOIN, GROUP BY, SUM | `/plans/statistics/` |
+| `Event` — мероприятие | `catalog` | `name`, `category`, `event_date` (DateField), `age_limit`, `ticket_price` (DecimalField, ≥ 0), `capacity` | обратная связь `event.plans` |
+| `User` — посетитель | `visitors` | `name`, `age`, `preferred_category`, `budget` | обратная связь `user.plans` |
+| `Plan` — запись | `planner` | `event`, `user`, `is_cancelled`, `comment`, `created_at` | `ForeignKey` на `Event` и `User` |
 
-В запросах приложения значения пользователя передаются только параметрами `?`
-(`conn.execute(query, [category])`); подстановка значений в текст запроса не
-используется. Строки результата читаются по именам полей благодаря
-`conn.row_factory = sqlite3.Row`, поэтому шаблоны обращаются к ним так же,
-как к атрибутам объектов (`{{ event.name }}`, `{{ plan.user_name }}`).
-Карточки мероприятия и записи пока используют объекты ПР3 и JSON.
-Сравнение категорий в SQL чувствительно к регистру (функции регистра SQLite
-не работают с кириллицей), поэтому при импорте категории приводятся к
-строчным буквам.
+* первичные ключи `id` (BigAutoField) создаёт Django;
+* `Plan.event` и `Plan.user` — `ForeignKey(on_delete=models.PROTECT,
+  related_name="plans")`: мероприятие или посетителя с записями удалить
+  нельзя, история записей сохраняется; столбцы `event_id` и `user_id`
+  создаются автоматически;
+* `Meta`: сортировка по умолчанию, `verbose_name`, ограничение
+  `CheckConstraint` на неотрицательную цену билета;
+* методы моделей: `Event.is_age_allowed()`, `Event.is_budget_enough()`,
+  `User.is_interested_in()`, `Plan.cancel()`; категории при сохранении
+  приводятся к строчным буквам.
+
+### Миграции
+
+Файлы `catalog/migrations/0001_initial.py`,
+`visitors/migrations/0001_initial.py`, `planner/migrations/0001_initial.py`
+хранятся в репозитории. Порядок работы:
+
+```powershell
+python manage.py makemigrations        # создать миграции по изменениям моделей
+python manage.py showmigrations        # состояние миграций ([X] — применена)
+python manage.py sqlmigrate planner 0001   # SQL миграции
+python manage.py migrate               # применить к db.sqlite3
+```
+
+### Перенос данных из базы ПР7
+
+Выбран вариант «таблицы, управляемые Django, и перенос данных»: исходная
+база `data/culture.sqlite` не изменяется и служит источником, Django работает
+с `db.sqlite3`.
+
+```powershell
+python -m db.inspect_source_db      # таблицы, столбцы, число записей, проверка ссылок
+python manage.py migrate
+python -m db.import_sqlite_to_orm   # перенос с сохранением id и связей
+```
+
+Скрипт `db/import_sqlite_to_orm.py` переносит сначала мероприятия и
+посетителей, затем записи (`update_or_create(pk=...)` в
+`transaction.atomic()`), преобразует даты в `date`, цены в `Decimal`,
+`is_cancelled` в `bool`. Повторный запуск не создаёт дублей. Ожидаемый
+результат: 5 мероприятий, 7 посетителей, 6 записей.
+
+### ORM-запросы проекта
+
+| Направление | Где используется | ORM-выражение |
+| --- | --- | --- |
+| получение набора | все списки | `Event.objects.all()`, `User.objects.order_by("name")` |
+| отдельный объект | карточки | `get_object_or_404(Plan.objects.select_related("event", "user"), pk=...)` |
+| фильтрация по одному условию | `/events/?category=` | `filter(category__iexact=category)` |
+| несколько условий | `/events/search/`, `/events/recommend/` | `filter(event_date__range=..., ticket_price__lte=...)` |
+| поле связанной модели | `/plans/?date=` | `filter(event__event_date=selected_date)` |
+| исключение | `/events/recommend/` | `exclude(pk__in=booked)` |
+| поиск по строке и нескольким полям | `/events/?q=` | `filter(Q(name__icontains=q) \| Q(category__icontains=q))` |
+| сортировка | `/events/?sort=`, `/plans/?sort=` | `order_by(*EVENT_SORT_FIELDS[sort])`, `order_by("event__name", "id")` |
+| связанные данные | `/plans/` | `annotate(event_name=F("event__name"), user_name=F("user__name")).values(...)` |
+| сокращённый набор полей | `/events/recommend/`, `/events/` | `values_list("event_id", flat=True)`, `values_list("category", flat=True).distinct()` |
+| агрегирование | статистика | `aggregate(Count("id"), Sum(...), Avg(...), Min(...), Max(...))` |
+| аннотирование и группировка | статистика, списки | `annotate(active_plans=Count("plans", filter=Q(...)))`, `values("category").annotate(...)` |
+| условие на агрегат (HAVING) | статистика | `annotate(...).filter(active_plans__gte=2)` |
+| постраничный вывод | `/plans/` | `Paginator(plans, 5).get_page(request.GET.get("page"))` |
+
+Пользовательские параметры проверяются: сортировка выбирается только из
+словарей `EVENT_SORT_FIELDS` и `PLAN_SORT_FIELDS`, идентификаторы — через
+`isdigit()`, даты — `date.fromisoformat()` с сообщением об ошибке, номер
+страницы — `get_page()` (некорректное значение даёт первую страницу).
+Отменённые записи не учитываются в свободных местах, подборе и статистике;
+статистика строится от `Event` и `User`, поэтому объекты без записей
+остаются в результате со значением 0.
+
+Поиск без учёта регистра по кириллице: встроенные `LIKE`/`lower()` SQLite
+работают только с латиницей, поэтому `catalog/sqlite_functions.py` при
+открытии соединения подключает Unicode-версии этих функций
+(`icontains`, `iexact` находят «Гамлет» по запросу «гамлет»).
+
+### Слой SQL ПР7
+
+Файлы `sql/schema.sql`, `sql/queries.sql`, `db/database.py`,
+`db/import_json.py` и `data/culture.sqlite` сохранены как предыдущая
+реализация и источник данных переноса; представления их больше не
+используют. Обновить исходную базу из JSON можно командой
+`python -m db.import_json`.
 
 ## Файлы и данные
 
@@ -205,43 +196,31 @@ homepage/img/logo.png`.
 TRPF_Project/
 ├── manage.py            # управление Django-проектом
 ├── leisure/             # настройки проекта (settings.py, urls.py, wsgi.py, asgi.py)
-├── templates/           # base.html и includes/navigation.html
+├── templates/           # base.html, includes/navigation.html, includes/pagination.html
 ├── homepage/            # приложение: главная, 404, статические файлы
-│   ├── templates/homepage/
-│   └── static/homepage/ # css/, js/, img/
-├── catalog/             # приложение: мероприятия
-│   └── templates/catalog/ # список, карточка, поиск, подбор, includes/
-├── planner/             # приложение: записи посетителей
-│   └── templates/planner/ # список, карточка, статистика, includes/
-├── db/                  # database.py (соединение), import_json.py (перенос данных)
-├── sql/                 # schema.sql (таблицы), queries.sql (запросы)
+├── catalog/             # приложение: модель Event, представления, шаблоны мероприятий
+│   └── migrations/
+├── visitors/            # приложение: модель User (посетитель)
+│   └── migrations/
+├── planner/             # приложение: модель Plan, список, карточка, статистика
+│   └── migrations/
+├── db/                  # import_sqlite_to_orm.py, inspect_source_db.py (ПР9); database.py, import_json.py (ПР7)
+├── sql/                 # schema.sql, queries.sql (ПР7)
 ├── main.py              # консольное меню (ПР3)
-├── models/              # классы Event, User и Plan
+├── models/              # классы Event, User и Plan консольной версии
 ├── events.py            # поиск, фильтрация, сортировка и проверки ПР1
 ├── plans.py             # доступность, создание, отмена и статистика
 ├── storage.py           # загрузка и сохранение объектов в JSON
 ├── utils.py             # безопасный ввод
-├── data/
-│   ├── events.json      # каталог мероприятий
-│   ├── users.json       # профили посетителей
-│   ├── plans.json       # ссылки и состояние записей
-│   └── culture.sqlite   # база данных SQLite (ПР7)
-├── tests/               # проверки pytest (консоль и веб)
-└── requirements.txt     # Django, pytest, flake8
+├── data/                # events.json, users.json, plans.json, culture.sqlite (ПР7)
+├── tests/               # проверки pytest (консоль, SQL-слой, модели, веб)
+└── requirements.txt     # Django, pytest, pytest-django, flake8
 ```
 
-При запуске JSON преобразуется в объекты, при сохранении объекты — в словари.
-В `events.json` используются поля `id`, `name`, `category`, `event_date`
-(ISO `ГГГГ-ММ-ДД`), `age_limit`, `ticket_price`, `capacity`. В `users.json` —
-`id`, `name`, `age`, `preferred_category`, `budget`. Записи в `plans.json`
-содержат только `id`, `event_id`, `user_id`, `is_cancelled`. Ссылки
-восстанавливаются на конкретные объекты; поврежденный JSON или неизвестный
-ID не перезаписываются пустыми данными.
-
 В репозитории лежат демонстрационные данные: пять мероприятий, семь
-посетителей и шесть записей (одна из них отменена). Старые записи ПР2 с
-`user_name`, `user_age`, `preferred_category`, `budget` читаются без изменения
-файлов. Не удаляйте `data/` без резервной копии.
+посетителей и шесть записей (одна из них отменена). База Django `db.sqlite3`
+в репозиторий не входит: после клонирования она создаётся миграциями и
+заполняется скриптом переноса.
 
 ## Запуск и проверка
 
@@ -252,8 +231,8 @@ python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 python manage.py migrate
+python -m db.import_sqlite_to_orm
 python manage.py check
-python -m db.import_json   # только если нужно пересоздать базу из JSON
 python manage.py runserver
 ```
 
@@ -261,27 +240,29 @@ python manage.py runserver
 командой `python main.py`. Проверка кода:
 
 ```powershell
+python manage.py makemigrations --check
+python manage.py showmigrations
 pytest -v
 flake8 . --extend-exclude=venv
 ```
 
-Django ORM, формы и авторизация пока не используются. Команда `migrate`
-создаёт только служебную базу Django `db.sqlite3` (в репозиторий она не
-входит); данные проекта лежат в `data/culture.sqlite`.
-
 ## Текущее состояние
 
-На ПР7 данные проекта перенесены из JSON в базу данных SQLite:
+На ПР9 веб-интерфейс переведён на Django ORM:
 
-* создана база `data/culture.sqlite`, таблицы созданы командами из
-  `sql/schema.sql`, определены первичные и внешние ключи;
-* данные перенесены скриптом `db/import_json.py`;
-* SQL-запросы сохранены в `sql/queries.sql` (13 запросов: выборка, `WHERE`,
-  `JOIN`, агрегатные функции, `GROUP BY`, `HAVING`);
-* Django-представления получают данные из SQLite и передают их в шаблоны;
-* страницы списка мероприятий, поиска, подбора для посетителя, списка записей
-  и статистики работают с базой данных;
+* описаны модели `Event`, `User`, `Plan` и связи «многие к одному»;
+* созданы и применены миграции, данные перенесены из базы ПР7 без потери
+  идентификаторов и связей;
+* представления получают данные через ORM (не менее 15 различных
+  ORM-выражений: фильтрация, `exclude()`, поиск `icontains`, `Q`, сортировка,
+  `select_related()`, `values()`, `aggregate()`, `annotate()`, `Paginator`);
+* список записей поддерживает фильтрацию, сортировку и пагинацию с
+  сохранением параметров;
 * консольная версия по-прежнему работает с JSON.
 
-Отложено до следующих работ: подключение базы к Django ORM (модели и
-миграции), формы, создание и отмена записей через веб.
+Отложено до следующих работ: административная панель, формы, создание и
+отмена записей через веб.
+
+## Автор
+
+Пшеничнов Александр Андреевич, группа ЭФБО-11-24.

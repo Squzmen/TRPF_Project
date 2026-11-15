@@ -1,64 +1,66 @@
 {% extends "base.html" %}
 
 {% block title %}
-    {% if event %}
-        {{ event.name }} – Культурный досуг
-    {% else %}
-        Мероприятие не найдено – Культурный досуг
-    {% endif %}
+    {{ event.name }} – Культурный досуг
 {% endblock %}
 
 {% block content %}
-    {% if event %}
-        <div class="card event-card">
-            <div class="card-body">
-                <h1 class="card-title">
-                    {{ event.name }}
-                </h1>
+    <div class="card event-card">
+        <div class="card-body">
+            <h1 class="card-title">
+                {{ event.name }}
+            </h1>
 
-                <p class="card-text">
-                    <strong>ID:</strong> {{ event.id }}
-                </p>
+            <p class="card-text">
+                <strong>ID:</strong> {{ event.id }}
+            </p>
 
-                <p class="card-text">
-                    <strong>Категория:</strong> {{ event.category }}
-                </p>
+            <p class="card-text">
+                <strong>Категория:</strong> {{ event.category }}
+            </p>
 
-                <p class="card-text">
-                    <strong>Дата:</strong>
-                    {{ event.event_date|date:"d.m.Y" }}
-                    ({{ date_status }})
-                </p>
+            <p class="card-text">
+                <strong>Дата:</strong>
+                {{ event.event_date|date:"d.m.Y" }}
+                ({{ date_status }})
+            </p>
 
-                <p class="card-text">
-                    <strong>Возраст:</strong> от {{ event.age_limit }} лет
-                </p>
+            <p class="card-text">
+                <strong>Возраст:</strong> от {{ event.age_limit }} лет
+            </p>
 
-                <p class="card-text">
-                    <strong>Билет:</strong>
-                    {{ event.ticket_price|floatformat:2 }} руб.
-                </p>
+            <p class="card-text">
+                <strong>Билет:</strong>
+                {{ event.ticket_price|floatformat:2 }} руб.
+            </p>
 
-                <p class="card-text">
-                    Наличие мест:
-                    {% if seats_left > 0 %}
-                        <span class="badge bg-success">
-                            свободно мест: {{ seats_left }}
-                        </span>
-                    {% else %}
-                        <span class="badge bg-danger">мест нет</span>
-                    {% endif %}
-                </p>
-            </div>
+            <p class="card-text">
+                Наличие мест:
+                {% if seats_left > 0 %}
+                    <span class="badge bg-success">
+                        свободно мест: {{ seats_left }}
+                    </span>
+                {% else %}
+                    <span class="badge bg-danger">мест нет</span>
+                {% endif %}
+            </p>
         </div>
-    {% else %}
-        <h1 class="text-danger">
-            Мероприятие не найдено
-        </h1>
-        <p>
-            Мероприятие с указанным идентификатором отсутствует.
-        </p>
-    {% endif %}
+    </div>
+
+    <section class="mt-4">
+        <h2 class="h4">Записавшиеся посетители</h2>
+        <ul class="list-group">
+            {% for plan in plans %}
+                <li class="list-group-item">
+                    <a href="{% url 'planner:detail' plan.id %}">
+                        {{ plan.user.name }}
+                    </a>
+                </li>
+            {% empty %}
+                <li class="list-group-item">Активных записей нет.</li>
+            {% endfor %}
+        </ul>
+    </section>
 
     <a
         href="{% url 'catalog:list' %}"
