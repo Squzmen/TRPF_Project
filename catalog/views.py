@@ -4,21 +4,21 @@
 вместо SQL-запросов через sqlite3 из ПР7.
 ПР10: менеджеры Event.objects.with_seats() и Plan.objects.active(),
 карточка мероприятия открывается по slug.
+ПР11: поиск через EventSearchForm, создание и изменение мероприятия
+через EventForm с загрузкой постера (request.FILES).
 """
 
-import math
 from datetime import date
-from decimal import Decimal
 
+from django.contrib import messages
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 
+from catalog.forms import EventForm, EventSearchForm
 from catalog.models import Event
 from events import get_event_date_status
 from planner.models import Plan
 from visitors.models import User
-
-MAX_PRICE = 1_000_000.0
 
 # Разрешённые значения параметра sort и соответствующие поля order_by().
 EVENT_SORT_FIELDS = {
@@ -67,61 +67,28 @@ def event_list(request):
     )
 
 
-def parse_date(value, default, label, errors):
-    """Разобрать дату ГГГГ-ММ-ДД; при ошибке добавить сообщение."""
-    if not value:
-        return default
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        errors.append(f"{label}: введите дату в формате ГГГГ-ММ-ДД.")
-        return default
-
-
-def parse_price(value, errors):
-    """Разобрать предельную цену билета; при ошибке добавить сообщение."""
-    if not value:
-        return MAX_PRICE
-    try:
-        price = float(value.replace(",", "."))
-    except ValueError:
-        price = -1.0
-    if not math.isfinite(price) or price < 0:
-        errors.append("Цена: введите неотрицательное число.")
-        return MAX_PRICE
-    return price
-
-
 def event_search(request):
     """Страница /events/search/: поиск по периоду дат и цене билета."""
-    raw_from = request.GET.get("date_from", "").strip()
-    raw_to = request.GET.get("date_to", "").strip()
-    raw_price = request.GET.get("max_price", "").strip()
     submitted = bool(request.GET)
+    # Форма связывается с GET-данными только после отправки.
+    form = EventSearchForm(request.GET if submitted else None)
 
-    errors = []
     events = []
-    if submitted:
-        date_from = parse_date(raw_from, date.today(), "Дата «с»", errors)
-        date_to = parse_date(raw_to, date.max, "Дата «по»", errors)
-        max_price = parse_price(raw_price, errors)
-        if not errors:
-            # Несколько условий в одном filter() объединяются через AND.
-            events = Event.objects.with_seats().filter(
-                event_date__range=(date_from, date_to),
-                ticket_price__lte=Decimal(str(max_price)),
-            ).order_by("event_date", "name")
+    if submitted and form.is_valid():
+        data = form.cleaned_data
+        # Несколько условий в одном filter() объединяются через AND.
+        events = Event.objects.with_seats().filter(
+            event_date__range=(data["date_from"], data["date_to"]),
+            ticket_price__lte=data["max_price"],
+        ).order_by("event_date", "name")
 
     return render(
         request,
         "catalog/event_search.html",
         {
+            "form": form,
             "events": events,
-            "errors": errors,
             "submitted": submitted,
-            "date_from": raw_from,
-            "date_to": raw_to,
-            "max_price": raw_price,
         },
     )
 
@@ -194,4 +161,41 @@ def event_detail(request, slug):
             ),
             "plans": plans,
         },
+    )
+
+
+def event_create(request):
+    """Страница /events/create/: новое мероприятие с постером."""
+    if request.method == "POST":
+        # Файлы формы передаются отдельно – через request.FILES.
+        form = EventForm(request.POST, request.FILES)
+        if form.is_valid():
+            event = form.save()
+            messages.success(request, f"Мероприятие «{event}» добавлено.")
+            return redirect(event)
+    else:
+        form = EventForm()
+    return render(
+        request,
+        "catalog/event_form.html",
+        {"form": form, "title": "Новое мероприятие"},
+    )
+
+
+def event_update(request, slug):
+    """Страница /events/<slug>/edit/: изменение мероприятия и постера."""
+    event = get_object_or_404(Event, slug=slug)
+    form = EventForm(
+        request.POST or None,
+        request.FILES or None,
+        instance=event,
+    )
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Изменения сохранены.")
+        return redirect(event)
+    return render(
+        request,
+        "catalog/event_form.html",
+        {"form": form, "title": f"Изменение: {event.name}", "event": event},
     )

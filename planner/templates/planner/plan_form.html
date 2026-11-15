@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {{ title }} – {{ site_name }}
+{% endblock %}
+
+{% block content %}
+    <h1>{{ title }}</h1>
+
+    <form method="post" class="col-lg-7" novalidate>
+        {# Токен защищает POST-запрос от CSRF-атак. #}
+        {% csrf_token %}
+        {% include "includes/form_fields.html" %}
+        <button type="submit" class="btn btn-primary">Сохранить</button>
+        <a
+            href="{% if plan %}{% url 'planner:detail' plan.id %}{% else %}{% url 'planner:list' %}{% endif %}"
+            class="btn btn-outline-secondary"
+        >
+            Отмена
+        </a>
+    </form>
+{% endblock %}

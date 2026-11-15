@@ -45,7 +45,7 @@
         </p>
         <h2 class="h4">Подходящих мероприятий: {{ events|length }}</h2>
         {% for event in events %}
-            {% include "catalog/includes/event_card.html" with seats_left=event.seats_left %}
+            {% include "catalog/includes/event_card.html" with seats_left=event.seats_left signup_user=selected.id %}
         {% empty %}
             <p>Подходящих мероприятий нет.</p>
         {% endfor %}

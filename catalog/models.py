@@ -3,6 +3,7 @@
 ПР9: таблица events описана моделью Django ORM.
 ПР10: менеджер EventQuerySet, вычисляемое поле is_family (GeneratedField),
 адрес страницы по slug и get_absolute_url().
+ПР11: постер мероприятия (ImageField, файлы в MEDIA_ROOT/events/).
 """
 
 from decimal import Decimal
@@ -100,6 +101,13 @@ class Event(models.Model):
     capacity = models.PositiveIntegerField(
         verbose_name="Вместимость",
         help_text="Максимальное число посетителей, которые могут записаться.",
+    )
+    poster = models.ImageField(
+        upload_to="events/",
+        blank=True,
+        null=True,
+        verbose_name="Постер",
+        help_text="Изображение JPG или PNG, необязательно.",
     )
 
     objects = EventManager()

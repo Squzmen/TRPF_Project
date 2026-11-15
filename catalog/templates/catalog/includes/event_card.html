@@ -30,5 +30,13 @@
         >
             Подробнее
         </a>
+        {% if signup_user %}
+            <a
+                href="{% url 'planner:create' %}?event={{ event.id }}&amp;user={{ signup_user }}"
+                class="btn btn-success"
+            >
+                Записаться
+            </a>
+        {% endif %}
     </div>
 </article>

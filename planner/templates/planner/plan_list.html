@@ -1,65 +1,31 @@
 {% extends "base.html" %}
 
 {% block title %}
-    Планы – Культурный досуг
+    Планы – {{ site_name }}
 {% endblock %}
 
 {% block content %}
-    <h1>Планы посетителей</h1>
+    <div class="d-flex justify-content-between align-items-center">
+        <h1>Планы посетителей</h1>
+        <a href="{% url 'planner:create' %}" class="btn btn-success">+ Новая запись</a>
+    </div>
 
-    <form method="get" class="row g-2 align-items-end mb-3">
-        <div class="col-md-2">
-            <label for="date" class="form-label">Дата</label>
-            <input type="date" id="date" name="date" value="{{ date }}" class="form-control">
-        </div>
-        <div class="col-md-3">
-            <label for="event" class="form-label">Мероприятие</label>
-            <select id="event" name="event" class="form-select">
-                <option value="">Все мероприятия</option>
-                {% for item in events %}
-                    <option value="{{ item.pk }}" {% if selected_event == item.pk|stringformat:"s" %}selected{% endif %}>
-                        {{ item.name }}
-                    </option>
+    {# Форма фильтрации PlanFilterForm отправляется GET-запросом. #}
+    <form method="get" class="row g-2 align-items-end mb-3 plan-filter">
+        {% for field in form %}
+            <div class="col-md">
+                {{ field.label_tag }}
+                {{ field }}
+                {% for error in field.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
                 {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label for="user" class="form-label">Посетитель</label>
-            <select id="user" name="user" class="form-select">
-                <option value="">Все посетители</option>
-                {% for item in users %}
-                    <option value="{{ item.pk }}" {% if selected_user == item.pk|stringformat:"s" %}selected{% endif %}>
-                        {{ item.name }}
-                    </option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label for="status" class="form-label">Статус</label>
-            <select id="status" name="status" class="form-select">
-                <option value="" {% if not status %}selected{% endif %}>Все записи</option>
-                {% for value, label in statuses %}
-                    <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label for="sort" class="form-label">Сортировка</label>
-            <select id="sort" name="sort" class="form-select">
-                <option value="date" {% if sort == "date" %}selected{% endif %}>По дате</option>
-                <option value="event" {% if sort == "event" %}selected{% endif %}>По мероприятию</option>
-                <option value="user" {% if sort == "user" %}selected{% endif %}>По посетителю</option>
-            </select>
-        </div>
+            </div>
+        {% endfor %}
         <div class="col-md-12">
             <button type="submit" class="btn btn-primary">Найти</button>
             <a href="{% url 'planner:list' %}" class="btn btn-outline-secondary">Сбросить</a>
         </div>
     </form>
-
-    {% if error %}
-        <div class="alert alert-danger">{{ error }}</div>
-    {% endif %}
 
     <p>
         {% if only_active %}
@@ -78,12 +44,13 @@
 
     <ul class="list-group">
         {% for plan in plans %}
-            <li class="list-group-item d-flex justify-content-between align-items-center">
-                <a href="{% url 'planner:detail' plan.id %}">
+            <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                <a href="{% url 'planner:detail' plan.id %}" class="me-auto">
                     {{ plan.user_name }} – {{ plan.event_name }},
                     {{ plan.event_date|date:"d.m.Y" }}
                 </a>
                 {% include "planner/includes/plan_status.html" %}
+                {% include "planner/includes/plan_actions.html" %}
             </li>
         {% empty %}
             <li class="list-group-item">Записи не найдены.</li>

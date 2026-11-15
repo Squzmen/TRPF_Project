@@ -31,6 +31,11 @@ body {
     font-weight: 700;
 }
 
+.event-poster {
+    max-height: 320px;
+    object-fit: cover;
+}
+
 .event-card {
     padding: 0.5rem;
     border: 1px solid #ddd;

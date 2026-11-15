@@ -2,6 +2,7 @@
 
 from django.contrib import admin
 from django.db.models import Count, Q
+from django.utils.html import format_html
 
 from catalog.models import Event
 from planner.admin import EventPlanInline
@@ -33,9 +34,10 @@ class EventAdmin(admin.ModelAdmin):
     ordering = ("event_date", "name")
     list_per_page = 20
     date_hierarchy = "event_date"
-    readonly_fields = ("slug", "is_family")
+    readonly_fields = ("slug", "is_family", "poster_preview")
     fieldsets = (
         (None, {"fields": ("name", "slug", "category")}),
+        ("Постер", {"fields": ("poster", "poster_preview")}),
         ("Условия посещения", {
             "fields": ("event_date", "age_limit", "is_family",
                        "ticket_price", "capacity"),
@@ -51,6 +53,13 @@ class EventAdmin(admin.ModelAdmin):
                 filter=Q(plans__status=Plan.Status.ACTIVE),
             ),
         )
+
+    @admin.display(description="Текущий постер")
+    def poster_preview(self, obj):
+        if not obj.poster:
+            return "Не загружен"
+        return format_html('<img src="{}" style="max-height: 150px">',
+                           obj.poster.url)
 
     @admin.display(description="Активных записей",
                    ordering="active_plans_count")

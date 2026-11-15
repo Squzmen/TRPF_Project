@@ -182,7 +182,7 @@ def test_event_search_by_dates_and_price(client):
 
 
 @pytest.mark.parametrize("params, message", [
-    ({"date_from": "31.12.2026"}, "формате ГГГГ-ММ-ДД"),
+    ({"date_from": "2026-31-12"}, "формате ГГГГ-ММ-ДД"),
     ({"max_price": "дорого"}, "неотрицательное число"),
     ({"max_price": "-5"}, "неотрицательное число"),
 ])
@@ -274,7 +274,7 @@ def test_plans_filter_by_date_of_related_event(client):
 
 def test_plans_invalid_date_shows_error(client):
     """Неверная дата не ломает страницу, выводится сообщение."""
-    response = client.get("/plans/", {"date": "14.11.2026"})
+    response = client.get("/plans/", {"date": "завтра"})
     assert response.status_code == 200
     assert "ГГГГ-ММ-ДД" in response.content.decode()
 

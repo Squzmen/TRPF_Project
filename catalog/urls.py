@@ -11,6 +11,8 @@ urlpatterns = [
     path("", views.event_list, name="list"),
     path("search/", views.event_search, name="search"),
     path("recommend/", views.event_recommend, name="recommend"),
+    path("create/", views.event_create, name="create"),
     path("<int:event_id>/", views.event_redirect, name="detail_by_id"),
     path("<slug:slug>/", views.event_detail, name="detail"),
+    path("<slug:slug>/edit/", views.event_update, name="update"),
 ]

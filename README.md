@@ -1,12 +1,14 @@
 # Система планирования культурного досуга
 
-Проект ПР1 → ПР2 → ПР3 → ПР5 → ПР6 → ПР7 → ПР9 → ПР10: подбор культурных
+Проект ПР1 → ПР2 → ПР3 → ПР5 → ПР6 → ПР7 → ПР9 → ПР10 → ПР11: подбор культурных
 мероприятий и сохранение записей посетителей. Консольное приложение (ПР3)
 дополнено веб-интерфейсом на Django (ПР5), страницы которого в ПР6 переведены
 на шаблоны Django, в ПР7 получили базу SQLite и SQL-запросы, а в ПР9 слой
 доступа к данным переведён на Django ORM: модели, связи, миграции и
 ORM-запросы; в ПР10 настроены административная панель Django, статусы
-записей, менеджеры запросов, адреса по slug и Django Debug Toolbar.
+записей, менеджеры запросов, адреса по slug и Django Debug Toolbar, а в
+ПР11 добавлены формы Django: фильтрация, создание, редактирование и отмена
+записей, добавление мероприятий с загрузкой постера.
 Исходные проверки возраста, категории, бюджета, даты и свободных
 мест сохранены и по-прежнему работают в консольной версии.
 
@@ -24,8 +26,9 @@ ORM-запросы; в ПР10 настроены административна�
 категории и сортировкой; карточка мероприятия с числом свободных мест и
 записавшимися посетителями; поиск по датам и цене; подбор мероприятий для
 посетителя; список записей с фильтрацией по дате, мероприятию, посетителю и
-статусу, сортировкой и постраничным выводом; карточка записи; статистика.
-Изменение данных через веб-формы будет реализовано после изучения форм Django.
+статусу, сортировкой и постраничным выводом; карточка записи; статистика;
+формы (ПР11): запись посетителя на мероприятие, изменение и отмена записи,
+добавление и изменение мероприятия с постером.
 
 ## Используемые технологии
 
@@ -79,6 +82,11 @@ Django-проект называется `leisure`, веб-часть разде
 | `/admin/` | — | Django Admin | ORM |
 | `/plans/` (`?date=&event=&user=&status=&sort=&page=`) | `planner:list` | `planner.views.plan_list` | ORM |
 | `/plans/statistics/` | `planner:statistics` | `planner.views.statistics` | ORM |
+| `/plans/create/` (`?event=&user=`) | `planner:create` | `planner.views.plan_create` | GET – форма, POST – сохранение |
+| `/plans/<int:plan_id>/edit/` | `planner:update` | `planner.views.plan_update` | GET/POST, только активные записи |
+| `/plans/<int:plan_id>/cancel/` | `planner:cancel` | `planner.views.plan_cancel` | только POST (`@require_POST`) |
+| `/events/create/` | `catalog:create` | `catalog.views.event_create` | GET/POST, загрузка постера |
+| `/events/<slug:slug>/edit/` | `catalog:update` | `catalog.views.event_update` | GET/POST, замена постера |
 | `/plans/<int:plan_id>/` | `planner:detail` | `planner.views.plan_detail` | ORM |
 
 Пространства имён задаются переменной `app_name` в `urls.py` приложений.
@@ -150,6 +158,51 @@ Django-проект называется `leisure`, веб-часть разде
   передаёт во все шаблоны `site_name`, `events_count` и `plan_status`
   (константы `Plan.Status` для сравнения в шаблонах).
 
+## Формы Django (ПР11)
+
+| Форма | Файл | Тип | Назначение |
+| --- | --- | --- | --- |
+| `PlanFilterForm` | `planner/forms.py` | `forms.Form` | GET-фильтры списка записей: `date` (DateField), `event`, `user` (ModelChoiceField), `status`, `sort` (ChoiceField) |
+| `PlanForm` | `planner/forms.py` | `forms.ModelForm` | создание и изменение записи: поля `event`, `user`, `comment`; `labels`, `help_texts`, `widgets` (Textarea), `error_messages` |
+| `EventSearchForm` | `catalog/forms.py` | `forms.Form` | поиск по датам и цене: `clean_max_price()`, `clean()` проверяет период |
+| `EventForm` | `catalog/forms.py` | `forms.ModelForm` | мероприятие и постер (`ImageField`), `clean_event_date()`, валидатор категории |
+
+* `homepage/forms.py` — миксин `BootstrapFormMixin`: классы `form-control`,
+  `form-select` и подсветка ошибок `is-invalid`;
+* `templates/includes/form_fields.html` — общий вывод формы:
+  `form.non_field_errors`, `field.label_tag`, `field.help_text`, `field.errors`.
+
+Валидация записи (`PlanForm`):
+
+* встроенная — обязательность, существование выбранных объектов,
+  длина комментария (до 500 символов);
+* валидатор-функция `planner/validators.py::validate_no_links` — без ссылок
+  в комментарии;
+* `clean_event()` — нельзя записаться на прошедшее мероприятие;
+* `clean()` — повторная активная запись запрещена, свободные места и правила
+  ПР1 (возраст, любимая категория, бюджет) проверяются функцией
+  `events.get_recommendation()` с прежними текстами причин; места считаются
+  по `Plan.objects.active()` — отменённая запись место не занимает; при
+  редактировании текущая запись исключается `exclude(pk=self.instance.pk)`.
+
+Обработка в представлениях: GET — пустая форма (для «Записаться» —
+начальные значения из `?event=&user=`), POST — `is_valid()`,
+`form.save(commit=False)`, статус `ACTIVE`, `save()`, сообщение
+`messages.success` и перенаправление; при ошибке форма показывается снова с
+введёнными значениями. Редактирование — `PlanForm(instance=plan)`, запись
+выбирается `get_object_or_404(Plan.objects.active(), pk=...)`. Отмена —
+кнопка-форма `method="post"` с `{% csrf_token %}`, представление
+`@require_POST` вызывает `plan.cancel()`: запись не удаляется, статус
+становится `cancelled`; GET-запрос даёт ответ 405.
+
+Загрузка постера: поле `Event.poster` (`ImageField(upload_to="events/")`,
+нужна библиотека Pillow), `MEDIA_URL = "/media/"`, `MEDIA_ROOT = BASE_DIR /
+"media"`, раздача файлов в режиме разработки — `static()` в `leisure/urls.py`,
+форма с `enctype="multipart/form-data"`, в представлении
+`EventForm(request.POST, request.FILES)`; изображение выводится через
+`{{ event.poster.url }}`. Постер можно загрузить и заменить также в
+административной панели. Каталог `media/` в репозиторий не входит.
+
 ## Административная панель (ПР10)
 
 Адрес `/admin/`. Учётная запись администратора создаётся командой
@@ -157,14 +210,14 @@ Django-проект называется `leisure`, веб-часть разде
 
 | Модель | Настройки `ModelAdmin` |
 | --- | --- |
-| `Event` | `list_display` (в т. ч. вычисляемый столбец «Активных записей» через `annotate()` в `get_queryset()`), `list_editable` (цена, вместимость), `list_filter`, `search_fields`, `date_hierarchy`, `readonly_fields` (slug, is_family), `fieldsets`, inline записей |
+| `Event` | постер и его предпросмотр (ПР11), `list_display` (в т. ч. вычисляемый столбец «Активных записей» через `annotate()` в `get_queryset()`), `list_editable` (цена, вместимость), `list_filter`, `search_fields`, `date_hierarchy`, `readonly_fields` (slug, is_family), `fieldsets`, inline записей |
 | `User` | столбцы, фильтр по категории, поиск, число записей, inline записей |
 | `Plan` | `list_display`, `list_editable` (статус), `list_filter` (статус, категория мероприятия), поиск по `event__name` и `user__name`, `list_select_related`, `autocomplete_fields`, `date_hierarchy`, действия «Отменить», «Вернуть в активные», «Отметить как посещённые» |
 
 Названия приложений задаются `verbose_name` в `apps.py`, моделей и полей —
 `verbose_name` в моделях, заголовки панели — `admin.site.site_header`.
 Административная панель не заменяет правила предметной области: проверка
-свободных мест при создании записи появится в формах (ПР11).
+свободных мест выполняется формой `PlanForm` в пользовательской части.
 
 ## Django Debug Toolbar (ПР10)
 
@@ -259,12 +312,12 @@ TRPF_Project/
 ├── manage.py            # управление Django-проектом
 ├── leisure/             # настройки проекта (settings.py, urls.py, wsgi.py, asgi.py)
 ├── templates/           # base.html, includes/navigation.html, includes/pagination.html
-├── homepage/            # приложение: главная, 404, статические файлы
+├── homepage/            # приложение: главная, 404, статические файлы, forms.py (миксин Bootstrap)
 ├── catalog/             # модель Event, admin.py, context_processors.py, представления, шаблоны
 │   └── migrations/
 ├── visitors/            # приложение: модель User (посетитель)
 │   └── migrations/
-├── planner/             # приложение: модель Plan, список, карточка, статистика
+├── planner/             # модель Plan, forms.py, validators.py, список, карточка, формы, статистика
 │   └── migrations/
 ├── db/                  # import_sqlite_to_orm.py, inspect_source_db.py (ПР9); database.py, import_json.py (ПР7)
 ├── sql/                 # schema.sql, queries.sql (ПР7)
@@ -276,7 +329,8 @@ TRPF_Project/
 ├── utils.py             # безопасный ввод
 ├── data/                # events.json, users.json, plans.json, culture.sqlite (ПР7)
 ├── tests/               # проверки pytest (консоль, SQL-слой, модели, веб)
-└── requirements.txt     # Django, Unidecode, django-debug-toolbar, pytest, pytest-django, flake8
+├── media/               # загруженные постеры (создаётся автоматически, не в репозитории)
+└── requirements.txt     # Django, Pillow, Unidecode, django-debug-toolbar, pytest, pytest-django, flake8
 ```
 
 В репозитории лежат демонстрационные данные: пять мероприятий, семь
@@ -333,8 +387,17 @@ flake8 . --extend-exclude=venv
 * добавлены `GeneratedField`, адреса по slug и `get_absolute_url()`,
   контекстный процессор, Django Debug Toolbar.
 
-Отложено до следующих работ: формы, создание, редактирование и отмена
-записей через веб.
+На ПР11:
+
+* созданы формы `PlanFilterForm`, `PlanForm`, `EventSearchForm`, `EventForm`;
+* реализованы создание, редактирование и отмена записи с проверкой даты,
+  свободных мест, дублей и правил ПР1; CSRF-защита всех POST-форм;
+* добавлены создание и изменение мероприятия с загрузкой постера;
+* фильтрация, сортировка и пагинация списка записей сохранены и работают
+  через форму.
+
+Отложено до следующих работ: аутентификация пользователей и разграничение
+прав в пользовательской части.
 
 ## Автор
 

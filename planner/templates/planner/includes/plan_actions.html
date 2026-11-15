@@ -1,0 +1,16 @@
+{# Кнопки для активной записи: изменение (ссылка) и отмена (POST-форма). #}
+{% if plan.status == plan_status.ACTIVE %}
+    <a href="{% url 'planner:update' plan.id %}" class="btn btn-sm btn-outline-primary">
+        Изменить
+    </a>
+    <form
+        method="post"
+        action="{% url 'planner:cancel' plan.id %}"
+        class="d-inline"
+    >
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-outline-danger">
+            Отменить
+        </button>
+    </form>
+{% endif %}

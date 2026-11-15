@@ -3,10 +3,11 @@
 ПР9: список записей, карточка и статистика получают данные через
 Django ORM; в списке добавлены фильтрация, сортировка и пагинация.
 ПР10: статусы Plan.Status и методы менеджера Plan.objects.
+ПР11: фильтры через PlanFilterForm; создание, редактирование (ModelForm
+PlanForm) и отмена записи POST-запросом.
 """
 
-from datetime import date
-
+from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import (
     Avg,
@@ -19,9 +20,11 @@ from django.db.models import (
     Q,
     Sum,
 )
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
 
 from catalog.models import Event
+from planner.forms import PlanFilterForm, PlanForm
 from planner.models import Plan
 from visitors.models import User
 
@@ -35,39 +38,28 @@ PLAN_SORT_FIELDS = {
     "user": "user__name",
 }
 
-# Разрешённые значения параметра status – коды Plan.Status.
-STATUS_FILTERS = Plan.Status.values
-
 
 def plan_list(request):
     """Страница /plans/: фильтры по дате, мероприятию, посетителю, статусу."""
-    raw_date = request.GET.get("date", "").strip()
-    raw_event = request.GET.get("event", "").strip()
-    raw_user = request.GET.get("user", "").strip()
-    status = request.GET.get("status", "").strip()
-    sort = request.GET.get("sort", "date")
-    error = None
+    # GET-параметры проверяет форма: DateField, ModelChoiceField, ChoiceField.
+    form = PlanFilterForm(request.GET)
+    form.is_valid()
+    # В cleaned_data попадают только значения, прошедшие проверку;
+    # ошибочные поля выводятся в шаблоне и не участвуют в фильтрации.
+    data = form.cleaned_data
 
     plans = Plan.objects.all()
-    if status in STATUS_FILTERS:
-        plans = plans.filter(status=status)
-    else:
-        status = ""
-    if raw_date:
-        try:
-            selected_date = date.fromisoformat(raw_date)
-        except ValueError:
-            error = "Укажите дату в формате ГГГГ-ММ-ДД."
-        else:
-            # Фильтрация по полю связанной модели Event (метод менеджера).
-            plans = plans.for_date(selected_date)
-    if raw_event.isdigit():
-        plans = plans.filter(event_id=int(raw_event))
-    if raw_user.isdigit():
-        plans = plans.filter(user_id=int(raw_user))
+    if data.get("status"):
+        plans = plans.filter(status=data["status"])
+    if data.get("date"):
+        # Фильтрация по полю связанной модели Event (метод менеджера).
+        plans = plans.for_date(data["date"])
+    if data.get("event"):
+        plans = plans.filter(event=data["event"])
+    if data.get("user"):
+        plans = plans.filter(user=data["user"])
 
-    if sort not in PLAN_SORT_FIELDS:
-        sort = "date"
+    sort = data.get("sort") or "date"
     plans = (
         plans
         .annotate(
@@ -96,19 +88,12 @@ def plan_list(request):
         request,
         "planner/plan_list.html",
         {
+            "form": form,
             "plans": page_obj,
             "page_obj": page_obj,
             "total": paginator.count,
-            "only_active": status == Plan.Status.ACTIVE,
-            "status": status,
-            "statuses": Plan.Status.choices,
+            "only_active": data.get("status") == Plan.Status.ACTIVE,
             "sort": sort,
-            "date": raw_date,
-            "selected_event": raw_event,
-            "selected_user": raw_user,
-            "events": Event.objects.order_by("event_date", "name"),
-            "users": User.objects.order_by("name"),
-            "error": error,
         },
     )
 
@@ -223,3 +208,56 @@ def plan_detail(request, plan_id):
         "planner/plan_detail.html",
         {"plan": plan},
     )
+
+
+def plan_create(request):
+    """Страница /plans/create/: GET – пустая форма, POST – сохранение."""
+    if request.method == "POST":
+        form = PlanForm(request.POST)
+        if form.is_valid():
+            # commit=False: объект создан, но ещё не сохранён в базе –
+            # можно задать поля, которых нет в форме.
+            plan = form.save(commit=False)
+            plan.status = Plan.Status.ACTIVE
+            plan.save()
+            messages.success(request, f"Запись №{plan.pk} оформлена.")
+            return redirect("planner:detail", plan_id=plan.pk)
+    else:
+        # Начальные значения из ссылки «Записаться» (?event=&user=).
+        form = PlanForm(initial={
+            "event": request.GET.get("event"),
+            "user": request.GET.get("user"),
+        })
+    return render(
+        request,
+        "planner/plan_form.html",
+        {"form": form, "title": "Новая запись на мероприятие"},
+    )
+
+
+def plan_update(request, plan_id):
+    """Страница /plans/<id>/edit/: изменение активной записи."""
+    plan = get_object_or_404(Plan.objects.active(), pk=plan_id)
+    # instance=plan: форма заполняется данными записи и при save()
+    # обновляет её, а не создаёт новую.
+    form = PlanForm(request.POST or None, instance=plan)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, f"Запись №{plan.pk} изменена.")
+        return redirect("planner:detail", plan_id=plan.pk)
+    return render(
+        request,
+        "planner/plan_form.html",
+        {"form": form, "title": f"Изменение записи №{plan.pk}",
+         "plan": plan},
+    )
+
+
+@require_POST
+def plan_cancel(request, plan_id):
+    """POST /plans/<id>/cancel/: отмена записи (GET – ответ 405)."""
+    plan = get_object_or_404(Plan.objects.active(), pk=plan_id)
+    # Запись не удаляется: меняется статус на CANCELLED.
+    plan.cancel()
+    messages.success(request, f"Запись №{plan.pk} отменена.")
+    return redirect("planner:list")
